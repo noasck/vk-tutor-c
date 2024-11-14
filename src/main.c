@@ -1,38 +1,45 @@
 #include "main.h"
 
-uint8_t
-BasedSDLInit ( Engine * engine )
+void
+glfwErrorCallback ( int error, const char * description )
 {
+    _DEBUG_P ( "GLFW Error [%d]: %s\n", error, description );
+}
 
-    if ( SDL_Init ( SDL_INIT_VIDEO ) != 0 )
+uint8_t
+BasedGLFWInit ( Engine * engine )
+{
+    glfwSetErrorCallback ( glfwErrorCallback );
+
+    if ( ! glfwInit () )
     {
-        printf ( "SDL_Init Error: %s\n", SDL_GetError () );
+        printf ( "GLFW Init Error\n" );
         return 1;
     }
 
-    engine->window = SDL_CreateWindow ( //
-        "Sample VK window",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        800,
-        600,
-        SDL_WINDOW_VULKAN );
+    glfwWindowHint ( GLFW_CLIENT_API, GLFW_NO_API );
+
+    engine->window =
+        glfwCreateWindow ( 800, 600, "Sample VK window", NULL, NULL );
 
     if ( ! engine->window )
     {
-        printf ( "SDL_CreateWindow Error: %s\n", SDL_GetError () );
-        SDL_Quit ();
+        printf ( "GLFW Create Window Error\n" );
+        glfwTerminate ();
         return 1;
     }
+
     return 0;
 }
 
 uint8_t
 init ()
 {
-    if ( BasedSDLInit ( CRINGE_ENGINE ) ) return 1;
+    if ( BasedGLFWInit ( CRINGE_ENGINE ) ) return 1;
 
     if ( BasedVKInit ( CRINGE_ENGINE ) ) return 1;
+
+    if ( CringedSwapChain ( CRINGE_ENGINE ) ) return 1;
 
     return 0;
 }
@@ -40,15 +47,9 @@ init ()
 uint8_t
 mainLoop ()
 {
-
-    SDL_Event event;
-    int       quit = 0;
-    while ( ! quit )
+    while ( ! glfwWindowShouldClose ( CRINGE_ENGINE->window ) )
     {
-        while ( SDL_PollEvent ( &event ) )
-        {
-            if ( event.type == SDL_QUIT ) { quit = 1; }
-        }
+        glfwPollEvents ();
     }
     return 0;
 }
@@ -56,6 +57,7 @@ mainLoop ()
 uint8_t
 cleanup ()
 {
+    BasedSwapChainCleanup ( CRINGE_ENGINE );
     BasedVKCleanup ( CRINGE_ENGINE );
     return 0;
 }
@@ -66,13 +68,23 @@ CringeInitEngine ( void )
     Engine * engine = ( Engine * ) malloc ( sizeof ( Engine ) );
     if ( engine == NULL ) { return NULL; }
 
-    engine->physicalDevice   = VK_NULL_HANDLE;
-    engine->validationLayers = layers;
+    engine->physicalDevice = VK_NULL_HANDLE;
+
+    engine->validationLayers.size =
+        sizeof ( layers ) / sizeof ( layers[ 0 ] );
+    engine->validationLayers.data = layers;
+
+    engine->customInstanceExt.size =
+        sizeof ( instanceExtensions ) / sizeof ( instanceExtensions[ 0 ] );
+    engine->customInstanceExt.data = instanceExtensions;
+
+    engine->customDeviceExt.size =
+        sizeof ( deviceExtensions ) / sizeof ( deviceExtensions[ 0 ] );
+    engine->customDeviceExt.data = deviceExtensions;
 
 #ifdef NDEBUG
     engine->validationLayerCount = 0;
-#else
-    engine->validationLayerCount = sizeof ( layers ) / sizeof ( layers[ 0 ] );
+    engine->customExtensionCount = 0;
 #endif
 
     return engine;
@@ -114,8 +126,8 @@ main ()
 exit_base:
     if ( CRINGE_ENGINE->window )
     {
-        SDL_DestroyWindow ( CRINGE_ENGINE->window );
-        SDL_Quit ();
+        glfwDestroyWindow ( CRINGE_ENGINE->window );
+        glfwTerminate ();
     }
     free ( CRINGE_ENGINE );
     return rcode;

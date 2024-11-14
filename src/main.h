@@ -10,12 +10,13 @@
 
 #include "vkinit.h"
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_vulkan.h>
 #include <cglm/cglm.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <vulkan/vulkan.h>
+
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 
 // +------------------------------------------+
 // |  Allocate memory for VK instance and etc |
@@ -27,7 +28,13 @@ Engine * CRINGE_ENGINE;
 Engine *
 CringeInitEngine ( void );
 
-const char * layers[] = { "VK_LAYER_KHRONOS_validation" };
+const char * layers[]             = { "VK_LAYER_KHRONOS_validation" };
+const char * instanceExtensions[] = {
+    VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+};
+const char * deviceExtensions[] = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+};
 
 uint8_t
 init ();

@@ -2,12 +2,14 @@
 #ifndef BASED_CODE_VK_INIT_H
 #define BASED_CODE_VK_INIT_H
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_vulkan.h>
 #include <cglm/cglm.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <vulkan/vulkan.h>
+
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 
 #ifndef NDEBUG
 #define _DEBUG_P( ... ) printf ( __VA_ARGS__ )
@@ -23,15 +25,55 @@ typedef struct
 
 typedef struct
 {
-    SDL_Window *             window;
-    VkInstance               vkInstance;
-    VkDevice                 device;
-    VkQueue                  graphicsQueue;
-    QueueFamilies *          queueFamilies;
-    VkPhysicalDevice         physicalDevice;
+    size_t        size;
+    const char ** data;
+
+} ConstParamArr;
+
+typedef struct
+{
+    VkSurfaceFormatKHR *     formats;
+    VkPresentModeKHR *       modes;
+    VkSurfaceCapabilitiesKHR capabilities;
+    size_t                   formatCount;
+    size_t                   modeCount;
+} SwapChainSupportDetails;
+
+typedef struct
+{
+    VkSurfaceFormatKHR surfaceFormat;
+    VkPresentModeKHR   presentMode;
+    VkExtent2D         extent;
+    uint32_t           imageCount;
+} SwapChainConfig;
+
+typedef struct
+{
+    VkInstance vkInstance;
+
+    GLFWwindow *     window;
+    VkSurfaceKHR     surface;
+    VkDevice         device;
+    VkPhysicalDevice physicalDevice;
+
+    QueueFamilies * queueFamilies;
+    uint32_t        graphicsQueueIdx;
+    VkQueue         graphicsQueue;
+    uint32_t        presentQueueIdx;
+    VkQueue         presentQueue;
+
     VkDebugUtilsMessengerEXT debugMessenger;
-    size_t                   validationLayerCount;
-    const char **            validationLayers;
+
+    ConstParamArr validationLayers;
+    ConstParamArr customInstanceExt;
+    ConstParamArr customDeviceExt;
+
+    VkSwapchainKHR          swapChain;
+    SwapChainSupportDetails swapChainDetails;
+    SwapChainConfig         swapChainConfig;
+    uint32_t                swapChainImagesCount;
+    VkImage *               swapChainImages;
+    VkImageView *           swapChainImageViews;
 } Engine;
 
 VkResult
@@ -39,5 +81,11 @@ BasedVKInit ( Engine * engine );
 
 VkResult
 BasedVKCleanup ( Engine * engine );
+
+VkResult
+BasedSwapChainCleanup ( Engine * engine );
+
+VkResult
+CringedSwapChain ( Engine * engine );
 
 #endif /* BASED_CODE_VK_INIT_H */
