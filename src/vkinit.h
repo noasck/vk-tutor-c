@@ -2,6 +2,8 @@
 #ifndef BASED_CODE_VK_INIT_H
 #define BASED_CODE_VK_INIT_H
 
+#include "shaderUtils.h"
+
 #include <cglm/cglm.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -87,5 +89,11 @@ BasedSwapChainCleanup ( Engine * engine );
 
 VkResult
 CringedSwapChain ( Engine * engine );
+
+VkResult
+BasedGraphicsPipeline ( Engine * engine );
+
+VkResult
+BasedGraphicsPipelineCleanup ( Engine * engine );
 
 #endif /* BASED_CODE_VK_INIT_H */

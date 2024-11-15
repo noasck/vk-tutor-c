@@ -706,6 +706,18 @@ r_base:
 }
 
 VkResult
+BasedGraphicsPipeline ( Engine * engine )
+{
+    //
+}
+
+VkResult
+BasedGraphicsPipelineCleanup ( Engine * engine )
+{
+    //
+}
+
+VkResult
 BasedSwapChainCleanup ( Engine * engine )
 {
 
@@ -741,3 +753,56 @@ BasedVKCleanup ( Engine * engine )
     vkDestroyInstance ( engine->vkInstance, NULL );
     return VK_SUCCESS;
 }
+
+/* =================================
+ * G R A P H I C S   P I P E L I N E
+ * =================================
+ *        Vertex/Index buffer
+ *                 │
+ *                 │
+ *                 ▼
+ *       ┌────────────────────┐
+ *       ││      Input       ││
+ *       ││    assembler     ││
+ *       └────────────────────┘
+ *                 │
+ *                 │
+ *                 ▼
+ *        ┌──────────────────┐
+ *        │   Vertex Shader  │
+ *        └────────┬─────────┘
+ *                 │ Screen
+ *                 │ space
+ *                 ▼
+ *        ┌──────────────────┐
+ *        │   Tessellation   │
+ *        └────────┬─────────┘
+ *                 │ Subdivide
+ *                 │ mesh
+ *                 ▼
+ *        x────────x─────────x
+ *        │  Geometry Shader │
+ *        x────────x─────────x
+ *                 │ Culling
+ *                 │ Divide
+ *                 ▼
+ *       ┌────────────────────┐
+ *       ││  Rasterization   ││
+ *       └─────────┬──────────┘
+ *                 │ Fragments
+ *                 │
+ *                 ▼
+ *        ┌──────────────────┐
+ *        │  Fragment Shader │
+ *        └────────┬─────────┘
+ *                 │ Textures
+ *                 │ Norms
+ *                 ▼ Light
+ *       ┌────────────────────┐
+ *       ││  Color Blending  ││
+ *       └─────────┬──────────┘
+ *                 │ Blend
+ *                 │
+ *                 ▼
+ *            Framebuffer
+ */

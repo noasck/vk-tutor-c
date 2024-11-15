@@ -39,7 +39,11 @@ init ()
 
     if ( BasedVKInit ( CRINGE_ENGINE ) ) return 1;
 
-    if ( CringedSwapChain ( CRINGE_ENGINE ) ) return 1;
+    if ( CringedSwapChain ( CRINGE_ENGINE ) )
+    {
+        // TODO: call BasedVKCleanup;
+        return 1;
+    }
 
     return 0;
 }
