@@ -42,6 +42,10 @@ init ()
     if ( CringedSwapChain ( CRINGE_ENGINE ) ) return 1;
 
     if ( BasedGraphicsPipeline ( CRINGE_ENGINE ) ) return 1;
+
+    if ( CringedFrameBuffers ( CRINGE_ENGINE ) ) return 1;
+    if ( CringedCommandBuffer ( CRINGE_ENGINE ) ) return 1;
+
     return 0;
 }
 
@@ -58,6 +62,8 @@ mainLoop ()
 uint8_t
 cleanup ()
 {
+    CringedCommandBufferCleanup ( CRINGE_ENGINE );
+    CringedFrameBuffersCleanup ( CRINGE_ENGINE );
     BasedGraphicsPipelineCleanup ( CRINGE_ENGINE );
     BasedSwapChainCleanup ( CRINGE_ENGINE );
     BasedVKCleanup ( CRINGE_ENGINE );

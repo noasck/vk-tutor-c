@@ -75,6 +75,8 @@ typedef struct
     uint32_t                swapChainImagesCount;
     VkImage *               swapChainImages;
     VkImageView *           swapChainImageViews;
+    uint32_t                swapChainFrameBufferCount;
+    VkFramebuffer *         swapChainFrameBuffers;
     /* Pipeline */
     /* triangle GLSL compiled shaders */
     VkPipeline *       pipeline;
@@ -82,6 +84,9 @@ typedef struct
     BasedShader *      triFrag;
     VkPipelineLayout * pipelineLayout;
     VkRenderPass *     renderPass;
+    /* Command Pools & Buffers */
+    VkCommandPool *   commandPool;
+    VkCommandBuffer * commandBuffer;
 
 } Engine;
 
@@ -108,5 +113,17 @@ BasedRenderPassCreate ( Engine * engine );
 
 VkResult
 BasedRenderPassCleanup ( Engine * engine );
+
+VkResult
+CringedFrameBuffersCleanup ( Engine * engine );
+
+VkResult
+CringedFrameBuffers ( Engine * engine );
+
+VkResult
+CringedCommandBuffer ( Engine * engine );
+
+VkResult
+CringedCommandBufferCleanup ( Engine * engine );
 
 #endif /* BASED_CODE_VK_INIT_H */

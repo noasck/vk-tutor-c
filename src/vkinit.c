@@ -574,6 +574,85 @@ defer_cleanup:
 }
 
 VkResult
+CringedCommandBuffer ( Engine * engine )
+{
+
+    VkResult opResult, rcode = VK_INCOMPLETE;
+
+    VkCommandPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = engine->graphicsQueueIdx;
+
+    engine->commandPool =
+        ( VkCommandPool * ) malloc ( sizeof ( VkCommandPool ) );
+    if ( ! engine->commandPool )
+    {
+        _DEBUG_P ( "error: malloc command Pool: %zu\n",
+                   sizeof ( VkCommandPool ) );
+        goto defer_cleanup;
+    }
+
+    if ( ( opResult = vkCreateCommandPool (
+               *engine->device, &poolInfo, NULL, engine->commandPool ) ) !=
+         VK_SUCCESS )
+    {
+        free ( engine->commandPool );
+        engine->commandPool = NULL;
+        _DEBUG_P ( "error: creating commandPool: %d\n", opResult );
+        goto defer_cleanup;
+    }
+
+    VkCommandBufferAllocateInfo allocInfo = {};
+    allocInfo.sType       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = *engine->commandPool;
+    allocInfo.level       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+
+    engine->commandBuffer =
+        ( VkCommandBuffer * ) malloc ( sizeof ( VkCommandBuffer ) );
+    if ( ! engine->commandBuffer )
+    {
+        _DEBUG_P ( "error: malloc command Buffer: %zu\n",
+                   sizeof ( VkCommandBuffer ) );
+        goto defer_cleanup;
+    }
+
+    if ( ( opResult = vkAllocateCommandBuffers (
+               *engine->device, &allocInfo, engine->commandBuffer ) ) !=
+         VK_SUCCESS )
+    {
+        free ( engine->commandBuffer );
+        engine->commandBuffer = NULL;
+        _DEBUG_P ( "error: creating commandBuffer: %d\n", opResult );
+        goto defer_cleanup;
+    }
+    rcode = VK_SUCCESS;
+
+defer_cleanup:
+    if ( rcode ) CringedCommandBufferCleanup ( engine );
+    return rcode;
+}
+
+VkResult
+CringedCommandBufferCleanup ( Engine * engine )
+{
+    if ( engine->commandPool )
+    {
+        vkFreeCommandBuffers (
+            *engine->device, *engine->commandPool, 1, engine->commandBuffer );
+        free ( engine->commandBuffer );
+    }
+    if ( engine->commandPool )
+    {
+        vkDestroyCommandPool ( *engine->device, *engine->commandPool, NULL );
+        free ( engine->commandPool );
+    }
+    if ( engine->commandBuffer ) { free ( engine->commandBuffer ); }
+    return VK_SUCCESS;
+}
+
+VkResult
 CringedSwapChain ( Engine * engine )
 {
     VkResult opResult, rcode = VK_INCOMPLETE;
@@ -775,6 +854,75 @@ defer_cleanup:
  *                 ▼
  *            Framebuffer
  */
+
+VkResult
+CringedFrameBuffers ( Engine * engine )
+{
+    VkResult opResult, rcode = VK_INCOMPLETE;
+
+    engine->swapChainFrameBufferCount = engine->swapChainImagesCount;
+    engine->swapChainFrameBuffers     = malloc (
+        engine->swapChainFrameBufferCount * sizeof ( VkFramebuffer ) );
+    if ( ! engine->swapChainFrameBuffers )
+    {
+
+        _DEBUG_P ( "error: malloc framebuffers of size: %zu\n",
+                   engine->swapChainFrameBufferCount *
+                       sizeof ( VkFramebuffer ) );
+        goto defer_cleanup;
+    }
+
+    for ( uint32_t i = 0; i < engine->swapChainFrameBufferCount; i++ )
+    {
+        VkImageView attachments[] = { engine->swapChainImageViews[ i ] };
+
+        VkFramebufferCreateInfo framebufferInfo = {};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass      = *engine->renderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments    = attachments;
+        framebufferInfo.width  = engine->swapChainConfig.extent.width;
+        framebufferInfo.height = engine->swapChainConfig.extent.height;
+        framebufferInfo.layers = 1;
+
+        if ( ( opResult = vkCreateFramebuffer ( //
+                   *engine->device,
+                   &framebufferInfo,
+                   NULL,
+                   engine->swapChainFrameBuffers + i ) ) != VK_SUCCESS )
+        {
+            /* Processed prevous `i` framebuffers, need to destroy. */
+            engine->swapChainFrameBufferCount = i;
+            _DEBUG_P (
+                "error: creating frame buffer [%d]: code %d\n", i, opResult );
+            goto defer_cleanup;
+        }
+    }
+
+    rcode = VK_SUCCESS;
+
+defer_cleanup:
+    if ( rcode ) BasedGraphicsPipelineCleanup ( engine );
+    return rcode;
+}
+
+VkResult
+CringedFrameBuffersCleanup ( Engine * engine )
+{
+    if ( engine->swapChainFrameBuffers )
+    {
+
+        for ( size_t i = 0; i < engine->swapChainFrameBufferCount; i++ )
+        {
+
+            vkDestroyFramebuffer (
+                *engine->device, engine->swapChainFrameBuffers[ i ], NULL );
+        }
+
+        free ( engine->swapChainFrameBuffers );
+    }
+    return VK_SUCCESS;
+}
 
 VkResult
 BasedGraphicsPipeline ( Engine * engine )
