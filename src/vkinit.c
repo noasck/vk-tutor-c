@@ -5,22 +5,22 @@
 #include "resources/shaders/Triangle_vert.h"
 
 #ifndef NDEBUG
-#define free( ptr )                                                         \
-    do {                                                                    \
-        if ( ptr )                                                          \
-        {                                                                   \
-            printf ( "try free(: %s )\n", #ptr );                           \
-            free ( ptr );                                                   \
-            ptr = NULL;                                                     \
-        }                                                                   \
-        else { printf ( "Attempted to free a null pointer: %s\n", #ptr ); } \
+#define free( ptr )                                                     \
+    do {                                                                \
+        if ( ptr )                                                      \
+        {                                                               \
+            printf ( "try free( :%s )\n", #ptr );                       \
+            free ( ptr );                                               \
+            ptr = NULL;                                                 \
+        }                                                               \
+        else { printf ( "ERROR: NULL POINTER free ( :%s )\n", #ptr ); } \
     } while ( 0 )
 #endif
 
 static inline int
 u_strcmp ( const char * str1, const char * str2 )
 {
-    while ( *str1 && *str1 == *str2 ) str1++, str2++;
+    while ( *str1 && *str2 && *str1 == *str2 ) str1++, str2++;
     return ( int ) ( ( uint8_t ) *str1 - ( uint8_t ) *str2 );
 }
 
