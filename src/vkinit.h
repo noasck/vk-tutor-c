@@ -77,9 +77,11 @@ typedef struct
     VkImageView *           swapChainImageViews;
     /* Pipeline */
     /* triangle GLSL compiled shaders */
+    VkPipeline *       pipeline;
     BasedShader *      triVert;
     BasedShader *      triFrag;
     VkPipelineLayout * pipelineLayout;
+    VkRenderPass *     renderPass;
 
 } Engine;
 

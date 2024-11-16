@@ -35,14 +35,13 @@ BasedGLFWInit ( Engine * engine )
 uint8_t
 init ()
 {
-    // TODO: cleanup on fail;
     if ( BasedGLFWInit ( CRINGE_ENGINE ) ) return 1;
 
     if ( BasedVKInit ( CRINGE_ENGINE ) ) return 1;
 
-    if ( CringedSwapChain ( CRINGE_ENGINE ) ) { return 1; }
+    if ( CringedSwapChain ( CRINGE_ENGINE ) ) return 1;
 
-    if ( BasedGraphicsPipeline ( CRINGE_ENGINE ) ) { return 1; }
+    if ( BasedGraphicsPipeline ( CRINGE_ENGINE ) ) return 1;
     return 0;
 }
 
@@ -117,15 +116,11 @@ main ()
         goto exit_base;
     }
 
-    if ( ( error = cleanup () ) )
-    {
-        printf ( "cleanup() failed: %d\n", error );
-        goto exit_base;
-    }
-
     rcode = 0;
 
 exit_base:
+    cleanup ();
+
     if ( CRINGE_ENGINE->window )
     {
         glfwDestroyWindow ( CRINGE_ENGINE->window );

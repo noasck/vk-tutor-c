@@ -777,34 +777,6 @@ defer_cleanup:
  */
 
 VkResult
-BasedRenderPassCreate ( Engine * engine )
-{
-    VkResult opResult, rcode = VK_INCOMPLETE;
-
-    VkAttachmentDescription colorAttachment = {};
-    colorAttachment.format  = engine->swapChainConfig.surfaceFormat.format;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-    rcode = VK_SUCCESS;
-
-defer_cleanup:
-    if ( rcode ) BasedRenderPassCleanup ( engine );
-    return rcode;
-}
-
-VkResult
-BasedRenderPassCleanup ( Engine * engine )
-{
-    return VK_SUCCESS;
-}
-
-VkResult
 BasedGraphicsPipeline ( Engine * engine )
 {
     VkResult opResult, rcode = VK_INCOMPLETE;
@@ -883,11 +855,11 @@ BasedGraphicsPipeline ( Engine * engine )
         goto defer_cleanup;
     }
     VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
-    vertShaderStageInfo.sType =
+    fragShaderStageInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vertShaderStageInfo.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
-    vertShaderStageInfo.module = *( engine->triFrag->s_module );
-    vertShaderStageInfo.pName  = "main";
+    fragShaderStageInfo.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = *( engine->triFrag->s_module );
+    fragShaderStageInfo.pName  = "main";
 
     VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo,
                                                        fragShaderStageInfo };
@@ -985,7 +957,6 @@ BasedGraphicsPipeline ( Engine * engine )
     colorBlending.blendConstants[ 3 ] = 0.0f;
 
     /* Pipeline Layout */
-    VkPipelineLayout pipelineLayout;
     engine->pipelineLayout = malloc ( sizeof ( VkPipelineLayout ) );
     if ( ! engine->pipelineLayout )
     {
@@ -1013,6 +984,93 @@ BasedGraphicsPipeline ( Engine * engine )
         goto defer_cleanup;
     }
 
+    /* Render Pass */
+
+    VkAttachmentDescription colorAttachment = {};
+    colorAttachment.format  = engine->swapChainConfig.surfaceFormat.format;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorAttachmentRef = {};
+    colorAttachmentRef.attachment            = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass = {};
+    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments    = &colorAttachmentRef;
+
+    VkRenderPassCreateInfo renderPassInfo = {};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments    = &colorAttachment;
+    renderPassInfo.subpassCount    = 1;
+    renderPassInfo.pSubpasses      = &subpass;
+
+    engine->renderPass = malloc ( sizeof ( VkRenderPass ) );
+    if ( ! engine->renderPass )
+    {
+        _DEBUG_P ( "error: malloc render pass of size: %zu\n",
+                   sizeof ( VkRenderPass ) );
+        goto defer_cleanup;
+    }
+    if ( ( opResult = vkCreateRenderPass ( //
+               *engine->device,
+               &renderPassInfo,
+               NULL,
+               engine->renderPass ) ) != VK_SUCCESS )
+    {
+        free ( engine->renderPass );
+        engine->renderPass = NULL;
+        _DEBUG_P ( "error: creating RenderPass: %d\n", opResult );
+        goto defer_cleanup;
+    }
+
+    /* GRAPHICS PIPELINE */
+    VkGraphicsPipelineCreateInfo pipelineInfo = {};
+    pipelineInfo.sType      = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages    = shaderStages;
+    pipelineInfo.pVertexInputState   = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pDepthStencilState  = NULL;
+    pipelineInfo.pColorBlendState    = &colorBlending;
+    pipelineInfo.pDynamicState       = NULL;
+    pipelineInfo.layout              = *engine->pipelineLayout;
+    pipelineInfo.renderPass          = *engine->renderPass;
+    pipelineInfo.subpass             = 0;
+    pipelineInfo.basePipelineHandle  = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex   = -1;
+
+    engine->pipeline = malloc ( sizeof ( VkPipeline ) );
+    if ( ! engine->pipeline )
+    {
+        _DEBUG_P ( "error: malloc Graphics Pipeline of size: %zu\n",
+                   sizeof ( VkPipeline ) );
+        goto defer_cleanup;
+    }
+    if ( ( opResult = vkCreateGraphicsPipelines ( //
+               *engine->device,
+               VK_NULL_HANDLE,
+               1,
+               &pipelineInfo,
+               NULL,
+               engine->pipeline ) ) != VK_SUCCESS )
+    {
+        free ( engine->pipeline );
+        engine->pipeline = NULL;
+        _DEBUG_P ( "error: creating Graphics Pipeline: %d\n", opResult );
+        goto defer_cleanup;
+    }
+
     rcode = VK_SUCCESS;
 
 defer_cleanup:
@@ -1023,6 +1081,17 @@ defer_cleanup:
 VkResult
 BasedGraphicsPipelineCleanup ( Engine * engine )
 {
+    if ( engine->pipeline )
+    {
+        vkDestroyPipeline ( *engine->device, *engine->pipeline, NULL );
+        free ( engine->pipeline );
+    }
+    if ( engine->renderPass )
+    {
+        vkDestroyRenderPass (
+            *engine->device, *( engine->renderPass ), NULL );
+        free ( engine->renderPass );
+    }
     if ( engine->pipelineLayout )
     {
         vkDestroyPipelineLayout (
