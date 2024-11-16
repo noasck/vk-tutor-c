@@ -52,30 +52,35 @@ typedef struct
 typedef struct
 {
     VkInstance vkInstance;
-
+    /* Platform Extension */
     GLFWwindow *     window;
     VkSurfaceKHR     surface;
     VkDevice         device;
     VkPhysicalDevice physicalDevice;
-
+    /* Queues */
     QueueFamilies * queueFamilies;
     uint32_t        graphicsQueueIdx;
     VkQueue         graphicsQueue;
     uint32_t        presentQueueIdx;
     VkQueue         presentQueue;
-
+    /* Extensions & Validation & Debug */
     VkDebugUtilsMessengerEXT debugMessenger;
-
-    ConstParamArr validationLayers;
-    ConstParamArr customInstanceExt;
-    ConstParamArr customDeviceExt;
-
+    ConstParamArr            validationLayers;
+    ConstParamArr            customInstanceExt;
+    ConstParamArr            customDeviceExt;
+    /*Swap Chain*/
     VkSwapchainKHR          swapChain;
     SwapChainSupportDetails swapChainDetails;
     SwapChainConfig         swapChainConfig;
     uint32_t                swapChainImagesCount;
     VkImage *               swapChainImages;
     VkImageView *           swapChainImageViews;
+    /* Pipeline */
+    /* triangle GLSL compiled shaders */
+    BasedShader *      triVert;
+    BasedShader *      triFrag;
+    VkPipelineLayout * pipelineLayout;
+
 } Engine;
 
 VkResult

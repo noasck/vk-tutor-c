@@ -35,16 +35,14 @@ BasedGLFWInit ( Engine * engine )
 uint8_t
 init ()
 {
+    // TODO: cleanup on fail;
     if ( BasedGLFWInit ( CRINGE_ENGINE ) ) return 1;
 
     if ( BasedVKInit ( CRINGE_ENGINE ) ) return 1;
 
-    if ( CringedSwapChain ( CRINGE_ENGINE ) )
-    {
-        // TODO: call BasedVKCleanup;
-        return 1;
-    }
+    if ( CringedSwapChain ( CRINGE_ENGINE ) ) { return 1; }
 
+    if ( BasedGraphicsPipeline ( CRINGE_ENGINE ) ) { return 1; }
     return 0;
 }
 
@@ -61,6 +59,7 @@ mainLoop ()
 uint8_t
 cleanup ()
 {
+    BasedGraphicsPipelineCleanup ( CRINGE_ENGINE );
     BasedSwapChainCleanup ( CRINGE_ENGINE );
     BasedVKCleanup ( CRINGE_ENGINE );
     return 0;
@@ -74,17 +73,16 @@ CringeInitEngine ( void )
 
     engine->physicalDevice = VK_NULL_HANDLE;
 
+    engine->validationLayers.data  = layers;
+    engine->customInstanceExt.data = instanceExtensions;
+    engine->customDeviceExt.data   = deviceExtensions;
+
     engine->validationLayers.size =
         sizeof ( layers ) / sizeof ( layers[ 0 ] );
-    engine->validationLayers.data = layers;
-
     engine->customInstanceExt.size =
         sizeof ( instanceExtensions ) / sizeof ( instanceExtensions[ 0 ] );
-    engine->customInstanceExt.data = instanceExtensions;
-
     engine->customDeviceExt.size =
         sizeof ( deviceExtensions ) / sizeof ( deviceExtensions[ 0 ] );
-    engine->customDeviceExt.data = deviceExtensions;
 
 #ifdef NDEBUG
     engine->validationLayerCount = 0;

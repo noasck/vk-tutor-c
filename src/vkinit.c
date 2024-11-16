@@ -1,5 +1,9 @@
 #include "vkinit.h"
 
+/* Load GLSL -> compiled SPIR-V Shaders embedded with xxd */
+#include "resources/shaders/Triangle_frag.h"
+#include "resources/shaders/Triangle_vert.h"
+
 static inline int
 u_strcmp ( const char * str1, const char * str2 )
 {
@@ -705,55 +709,6 @@ r_base:
     return rcode;
 }
 
-VkResult
-BasedGraphicsPipeline ( Engine * engine )
-{
-    //
-}
-
-VkResult
-BasedGraphicsPipelineCleanup ( Engine * engine )
-{
-    //
-}
-
-VkResult
-BasedSwapChainCleanup ( Engine * engine )
-{
-
-    free ( engine->swapChainImages );
-    vkDestroySwapchainKHR ( engine->device, engine->swapChain, NULL );
-
-    for ( size_t i = 0; i < engine->swapChainImagesCount; i++ )
-        vkDestroyImageView (
-            engine->device, engine->swapChainImageViews[ i ], NULL );
-    return VK_SUCCESS;
-}
-
-VkResult
-BasedVKCleanup ( Engine * engine )
-{
-    if ( engine->debugMessenger && engine->validationLayers.size )
-    {
-        PFN_vkDestroyDebugUtilsMessengerEXT func =
-            ( PFN_vkDestroyDebugUtilsMessengerEXT ) vkGetInstanceProcAddr (
-                engine->vkInstance, "vkDestroyDebugUtilsMessengerEXT" );
-        if ( func != NULL )
-        {
-            func ( engine->vkInstance, engine->debugMessenger, NULL );
-        }
-    }
-    free ( engine->queueFamilies->queues );
-    free ( engine->queueFamilies );
-    free ( engine->swapChainDetails.formats );
-    free ( engine->swapChainDetails.modes );
-
-    vkDestroySurfaceKHR ( engine->vkInstance, engine->surface, NULL );
-    vkDestroyDevice ( engine->device, NULL );
-    vkDestroyInstance ( engine->vkInstance, NULL );
-    return VK_SUCCESS;
-}
-
 /* =================================
  * G R A P H I C S   P I P E L I N E
  * =================================
@@ -806,3 +761,284 @@ BasedVKCleanup ( Engine * engine )
  *                 ▼
  *            Framebuffer
  */
+
+VkResult
+BasedGraphicsPipeline ( Engine * engine )
+{
+    VkResult opResult, rcode = VK_INCOMPLETE;
+
+    engine->triVert = cringedCreateShader ( //
+        build_shaders_Triangle_vert_spv,
+        build_shaders_Triangle_vert_spv_len );
+    if ( ! engine->triVert )
+    {
+        _DEBUG_P ( "error: failed to load shader Triangle_vert.spv\n" );
+        goto r_base;
+    }
+
+    engine->triFrag = cringedCreateShader ( //
+        build_shaders_Triangle_frag_spv,
+        build_shaders_Triangle_frag_spv_len );
+    if ( ! engine->triFrag )
+    {
+        _DEBUG_P ( "error: failed to load shader Triangle_frag.spv\n" );
+        goto defer_cleanup;
+    }
+
+    VkShaderModuleCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+
+    /* Create Vertex Shader Module & Stage */
+    engine->triVert->s_module =
+        ( VkShaderModule * ) malloc ( sizeof ( VkShaderModule ) );
+    if ( ! engine->triVert->s_module )
+    {
+        _DEBUG_P ( "error: malloc triVert shadermodule of size: %zu\n",
+                   sizeof ( VkShaderModule ) );
+        goto defer_cleanup;
+    }
+    createInfo.codeSize = engine->triVert->size;
+    createInfo.pCode    = ( uint32_t * ) engine->triVert->data;
+    if ( ( opResult = vkCreateShaderModule ( //
+               engine->device,
+               &createInfo,
+               NULL,
+               engine->triVert->s_module ) ) != VK_SUCCESS )
+    {
+        free ( engine->triVert->s_module );
+        engine->triVert->s_module = NULL;
+        _DEBUG_P ( "error: creating triVert shadermodule: %d\n", opResult );
+        goto defer_cleanup;
+    }
+
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
+    vertShaderStageInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderStageInfo.module = *( engine->triVert->s_module );
+    vertShaderStageInfo.pName  = "main";
+
+    /* Create Fragment Shader Module & Stage */
+    engine->triFrag->s_module =
+        ( VkShaderModule * ) malloc ( sizeof ( VkShaderModule ) );
+    if ( ! engine->triFrag->s_module )
+    {
+        _DEBUG_P ( "error: malloc triFrag shadermodule of size: %zu\n",
+                   sizeof ( VkShaderModule ) );
+        goto defer_cleanup;
+    }
+    createInfo.codeSize = engine->triFrag->size;
+    createInfo.pCode    = ( uint32_t * ) engine->triFrag->data;
+    if ( ( opResult = vkCreateShaderModule ( //
+               engine->device,
+               &createInfo,
+               NULL,
+               engine->triFrag->s_module ) ) != VK_SUCCESS )
+    {
+        free ( engine->triFrag->s_module );
+        engine->triFrag->s_module = NULL;
+        _DEBUG_P ( "error: creating triFrag shadermodule: %d\n", opResult );
+        goto defer_cleanup;
+    }
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
+    vertShaderStageInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    vertShaderStageInfo.module = *( engine->triFrag->s_module );
+    vertShaderStageInfo.pName  = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo,
+                                                       fragShaderStageInfo };
+
+    /* Vertex Shader input
+     * TODO: no input for now */
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+    vertexInputInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount   = 0;
+    vertexInputInfo.pVertexBindingDescriptions      = NULL;
+    vertexInputInfo.vertexAttributeDescriptionCount = 0;
+    vertexInputInfo.pVertexAttributeDescriptions    = NULL;
+
+    /* Input Assembly */
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+    inputAssembly.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    /* Viewport & Scissors Setup */
+    VkOffset2D scissorsOffset = { 0, 0 };
+
+    VkViewport viewport = {};
+    viewport.x          = 0.0f;
+    viewport.y          = 0.0f;
+    viewport.width      = ( float ) engine->swapChainConfig.extent.width;
+    viewport.height     = ( float ) engine->swapChainConfig.extent.height;
+    viewport.minDepth   = 0.0f;
+    viewport.maxDepth   = 1.0f;
+    VkRect2D scissor    = {};
+    scissor.offset      = scissorsOffset;
+    scissor.extent      = engine->swapChainConfig.extent;
+
+    VkPipelineViewportStateCreateInfo viewportState = {};
+    viewportState.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports    = &viewport;
+    viewportState.scissorCount  = 1;
+    viewportState.pScissors     = &scissor;
+
+    /* Rasterizer */
+
+    VkPipelineRasterizationStateCreateInfo rasterizer = {};
+    rasterizer.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_TRUE; /* clamp instead of discarding */
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth               = 1.0f;
+    rasterizer.cullMode                = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace               = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.depthBiasEnable         = VK_FALSE;
+    rasterizer.depthBiasConstantFactor = 0.0f;
+    rasterizer.depthBiasClamp          = 0.0f;
+    rasterizer.depthBiasSlopeFactor    = 0.0f;
+
+    /* Antialiasing: Multisampling */
+    VkPipelineMultisampleStateCreateInfo multisampling = {};
+    multisampling.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable   = VK_FALSE;
+    multisampling.rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.minSampleShading      = 1.0f;
+    multisampling.pSampleMask           = NULL;
+    multisampling.alphaToCoverageEnable = VK_FALSE;
+    multisampling.alphaToOneEnable      = VK_FALSE;
+
+    /* Color Blending: alpha blending enabled */
+    VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable         = VK_TRUE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor =
+        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending = {};
+    colorBlending.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable       = VK_FALSE;
+    colorBlending.logicOp             = VK_LOGIC_OP_COPY;
+    colorBlending.attachmentCount     = 1;
+    colorBlending.pAttachments        = &colorBlendAttachment;
+    colorBlending.blendConstants[ 0 ] = 0.0f;
+    colorBlending.blendConstants[ 1 ] = 0.0f;
+    colorBlending.blendConstants[ 2 ] = 0.0f;
+    colorBlending.blendConstants[ 3 ] = 0.0f;
+
+    /* Pipeline Layout */
+    VkPipelineLayout pipelineLayout;
+    engine->pipelineLayout = malloc ( sizeof ( VkPipelineLayout ) );
+    if ( ! engine->pipelineLayout )
+    {
+        _DEBUG_P ( "error: malloc pipeline Layout of size: %zu\n",
+                   sizeof ( VkPipelineLayout ) );
+        goto defer_cleanup;
+    }
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount         = 0;
+    pipelineLayoutInfo.pSetLayouts            = NULL;
+    pipelineLayoutInfo.pushConstantRangeCount = 0;
+    pipelineLayoutInfo.pPushConstantRanges    = NULL;
+
+    if ( ( opResult = vkCreatePipelineLayout ( //
+               engine->device,
+               &pipelineLayoutInfo,
+               NULL,
+               engine->pipelineLayout ) ) != VK_SUCCESS )
+    {
+        free ( engine->pipelineLayout );
+        engine->pipelineLayout = NULL;
+        _DEBUG_P ( "error: creating PipelineLayout: %d\n", opResult );
+        goto defer_cleanup;
+    }
+    /* defer: on fail: destroy pipeline layout */
+
+    rcode = VK_SUCCESS;
+
+defer_cleanup:
+    if ( rcode ) BasedGraphicsPipelineCleanup ( engine );
+r_base:
+    return rcode;
+}
+
+VkResult
+BasedGraphicsPipelineCleanup ( Engine * engine )
+{
+    if ( engine->pipelineLayout )
+    {
+        vkDestroyPipelineLayout (
+            engine->device, *( engine->pipelineLayout ), NULL );
+        free ( engine->pipelineLayout );
+    }
+    if ( engine->triFrag->s_module )
+    {
+        vkDestroyShaderModule (
+            engine->device, *( engine->triFrag->s_module ), NULL );
+        free ( engine->triFrag->s_module );
+    }
+    if ( engine->triVert->s_module )
+    {
+        vkDestroyShaderModule (
+            engine->device, *( engine->triVert->s_module ), NULL );
+        free ( engine->triVert->s_module );
+    }
+    if ( engine->triFrag ) cringedDestroyShader ( engine->triFrag );
+    if ( engine->triVert ) cringedDestroyShader ( engine->triVert );
+    return VK_SUCCESS;
+}
+
+VkResult
+BasedSwapChainCleanup ( Engine * engine )
+{
+
+    free ( engine->swapChainImages );
+    vkDestroySwapchainKHR ( engine->device, engine->swapChain, NULL );
+
+    for ( size_t i = 0; i < engine->swapChainImagesCount; i++ )
+        vkDestroyImageView (
+            engine->device, engine->swapChainImageViews[ i ], NULL );
+    return VK_SUCCESS;
+}
+
+VkResult
+BasedVKCleanup ( Engine * engine )
+{
+    if ( engine->debugMessenger && engine->validationLayers.size )
+    {
+        PFN_vkDestroyDebugUtilsMessengerEXT func =
+            ( PFN_vkDestroyDebugUtilsMessengerEXT ) vkGetInstanceProcAddr (
+                engine->vkInstance, "vkDestroyDebugUtilsMessengerEXT" );
+        if ( func != NULL )
+        {
+            func ( engine->vkInstance, engine->debugMessenger, NULL );
+        }
+    }
+    free ( engine->queueFamilies->queues );
+    free ( engine->queueFamilies );
+    free ( engine->swapChainDetails.formats );
+    free ( engine->swapChainDetails.modes );
+
+    vkDestroySurfaceKHR ( engine->vkInstance, engine->surface, NULL );
+    vkDestroyDevice ( engine->device, NULL );
+    vkDestroyInstance ( engine->vkInstance, NULL );
+    return VK_SUCCESS;
+}
