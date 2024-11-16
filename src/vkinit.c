@@ -95,7 +95,7 @@ querySwapChainSupport ( Engine * engine )
          VK_SUCCESS )
     {
         _DEBUG_P ( "error: failed to query surface capabilities\n" );
-        return result;
+        goto defer_cleanup;
     }
     details->capabilities = capabilities;
 
@@ -105,7 +105,7 @@ querySwapChainSupport ( Engine * engine )
          VK_SUCCESS )
     {
         _DEBUG_P ( "error: failed to get surface format count\n" );
-        return result;
+        goto defer_cleanup;
     }
 
     if ( formatCount > 0 )
@@ -115,7 +115,7 @@ querySwapChainSupport ( Engine * engine )
         if ( ! details->formats )
         {
             _DEBUG_P ( "error: malloc failed for formats\n" );
-            return result;
+            goto defer_cleanup;
         }
 
         if ( vkGetPhysicalDeviceSurfaceFormatsKHR ( engine->physicalDevice,
@@ -125,7 +125,7 @@ querySwapChainSupport ( Engine * engine )
              VK_SUCCESS )
         {
             _DEBUG_P ( "error: failed to get surface formats\n" );
-            goto defer_free_formats;
+            goto defer_cleanup;
         }
     }
     details->formatCount = formatCount;
@@ -136,7 +136,7 @@ querySwapChainSupport ( Engine * engine )
          VK_SUCCESS )
     {
         _DEBUG_P ( "error: failed to get present mode count\n" );
-        goto defer_free_formats;
+        goto defer_cleanup;
     }
 
     if ( modeCount > 0 )
@@ -146,7 +146,7 @@ querySwapChainSupport ( Engine * engine )
         if ( ! details->modes )
         {
             _DEBUG_P ( "error: malloc failed for present modes\n" );
-            goto defer_free_formats;
+            goto defer_cleanup;
         }
 
         if ( vkGetPhysicalDeviceSurfacePresentModesKHR (
@@ -156,18 +156,16 @@ querySwapChainSupport ( Engine * engine )
                  details->modes ) != VK_SUCCESS )
         {
             _DEBUG_P ( "error: failed to get present modes\n" );
-            goto defer_free_modes;
+            goto defer_cleanup;
         }
     }
     details->modeCount = modeCount;
 
     result = VK_SUCCESS;
 
-defer_free_modes:
-    if ( result ) free ( details->modes );
-
-defer_free_formats:
-    if ( result ) free ( details->formats );
+defer_cleanup:
+    if ( result && details->modes ) free ( details->modes );
+    if ( result && details->formats ) free ( details->formats );
 
     return result;
 }
@@ -217,7 +215,7 @@ BasedVKInit ( Engine * engine )
     appInfo.sType                   = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName        = "Hello Triangle";
     appInfo.applicationVersion      = VK_MAKE_VERSION ( 1, 0, 0 );
-    appInfo.pEngineName             = "Chiteks Engine";
+    appInfo.pEngineName             = "BiGBlantCheatx Engine";
     appInfo.engineVersion           = VK_MAKE_VERSION ( 0, 1, 0 );
     appInfo.apiVersion              = VK_API_VERSION_1_3;
     VkInstanceCreateInfo createInfo = {};
@@ -609,27 +607,37 @@ CringedSwapChain ( Engine * engine )
         createInfo.pQueueFamilyIndices   = NULL;
     }
 
+    engine->swapChain = malloc ( sizeof ( VkSwapchainKHR ) );
+    if ( ! engine->swapChain )
+    {
+        _DEBUG_P ( "error: malloc swapChain of size: %zu",
+                   sizeof ( VkSwapchainKHR ) );
+        goto defer_cleanup;
+    }
     if ( ( opResult = vkCreateSwapchainKHR ( //
                engine->device,
                &createInfo,
                NULL,
-               &( engine->swapChain ) ) ) != VK_SUCCESS )
+               engine->swapChain ) ) != VK_SUCCESS )
     {
+        free ( engine->swapChain );
+        engine->swapChain = NULL;
         _DEBUG_P ( "error: swapChain creation failed: %d", opResult );
-        goto r_base;
+        goto defer_cleanup;
     }
-    /* defer: vkDestroy(swapChain) */
 
     uint32_t imageCount = 0;
-    if ( ( opResult = vkGetSwapchainImagesKHR (
-               engine->device, engine->swapChain, &imageCount, NULL ) ) !=
-             VK_SUCCESS ||
+    if ( ( opResult = vkGetSwapchainImagesKHR ( //
+               engine->device,
+               *( engine->swapChain ),
+               &imageCount,
+               NULL ) ) != VK_SUCCESS ||
          ( ! imageCount ) )
     {
         _DEBUG_P ( "error: retrieving VkImages count: %d and count %d",
                    opResult,
                    imageCount );
-        goto defer_destroySwapChain;
+        goto defer_cleanup;
     }
     engine->swapChainImages =
         ( VkImage * ) malloc ( imageCount * sizeof ( VkImage ) );
@@ -637,20 +645,19 @@ CringedSwapChain ( Engine * engine )
     {
         _DEBUG_P ( "error: malloc Vkimages of size: %zu",
                    imageCount * sizeof ( VkImage ) );
-        goto defer_destroySwapChain;
+        goto defer_cleanup;
     }
-    /* defer: ON FAIL: free engine->swapchainimages */
 
-    if ( ( opResult = vkGetSwapchainImagesKHR ( engine->device,
-                                                engine->swapChain,
-                                                &imageCount,
-                                                engine->swapChainImages ) ) !=
-         VK_SUCCESS )
+    if ( ( opResult = vkGetSwapchainImagesKHR ( //
+               engine->device,
+               *( engine->swapChain ),
+               &imageCount,
+               engine->swapChainImages ) ) != VK_SUCCESS )
     {
         _DEBUG_P ( "error: retrieving VkImages: %d and count %d",
                    opResult,
                    imageCount );
-        goto defer_free_images;
+        goto defer_cleanup;
     }
     engine->swapChainImagesCount = imageCount;
 
@@ -660,9 +667,8 @@ CringedSwapChain ( Engine * engine )
     {
         _DEBUG_P ( "error: malloc VkImageViews of size: %zu",
                    engine->swapChainImagesCount * sizeof ( VkImageView ) );
-        goto defer_free_images;
+        goto defer_cleanup;
     }
-    /* defer: ON FAIL: free engine->swapchainimageVIEWS */
 
     VkImageViewCreateInfo swIView_createinfo = {};
     swIView_createinfo.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -690,22 +696,19 @@ CringedSwapChain ( Engine * engine )
                               &( engine->swapChainImageViews[ i ] ) ) !=
                           VK_SUCCESS ) )
         {
+            /* Current one failed:
+             * During cleanup need to vkDestroy + dealloc previous 'i' */
+            engine->swapChainImagesCount = i;
             _DEBUG_P ( "error: creating vkImageView for Image idx %d: %d",
                        i,
                        opResult );
-            goto defer_free_image_views;
+            goto defer_cleanup;
         }
     }
 
     rcode = VK_SUCCESS;
-defer_free_image_views:
-    if ( rcode ) free ( engine->swapChainImageViews );
-defer_free_images:
-    if ( rcode ) free ( engine->swapChainImages );
-defer_destroySwapChain:
-    if ( rcode )
-        vkDestroySwapchainKHR ( engine->device, engine->swapChain, NULL );
-r_base:
+defer_cleanup:
+    if ( rcode ) BasedSwapChainCleanup ( engine );
     return rcode;
 }
 
@@ -1010,12 +1013,20 @@ VkResult
 BasedSwapChainCleanup ( Engine * engine )
 {
 
-    free ( engine->swapChainImages );
-    vkDestroySwapchainKHR ( engine->device, engine->swapChain, NULL );
-
-    for ( size_t i = 0; i < engine->swapChainImagesCount; i++ )
-        vkDestroyImageView (
-            engine->device, engine->swapChainImageViews[ i ], NULL );
+    if ( engine->swapChainImages ) free ( engine->swapChainImages );
+    if ( engine->swapChain )
+    {
+        vkDestroySwapchainKHR (
+            engine->device, *( engine->swapChain ), NULL );
+        free ( engine->swapChain );
+    }
+    if ( engine->swapChainImageViews )
+    {
+        for ( size_t i = 0; i < engine->swapChainImagesCount; i++ )
+            vkDestroyImageView (
+                engine->device, engine->swapChainImageViews[ i ], NULL );
+        free ( engine->swapChainImageViews );
+    }
     return VK_SUCCESS;
 }
 

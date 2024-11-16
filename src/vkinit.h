@@ -69,7 +69,7 @@ typedef struct
     ConstParamArr            customInstanceExt;
     ConstParamArr            customDeviceExt;
     /*Swap Chain*/
-    VkSwapchainKHR          swapChain;
+    VkSwapchainKHR *        swapChain;
     SwapChainSupportDetails swapChainDetails;
     SwapChainConfig         swapChainConfig;
     uint32_t                swapChainImagesCount;
