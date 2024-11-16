@@ -51,11 +51,11 @@ typedef struct
 
 typedef struct
 {
-    VkInstance vkInstance;
+    VkInstance * vkInstance;
     /* Platform Extension */
     GLFWwindow *     window;
-    VkSurfaceKHR     surface;
-    VkDevice         device;
+    VkSurfaceKHR *   surface;
+    VkDevice *       device;
     VkPhysicalDevice physicalDevice;
     /* Queues */
     QueueFamilies * queueFamilies;
@@ -64,10 +64,10 @@ typedef struct
     uint32_t        presentQueueIdx;
     VkQueue         presentQueue;
     /* Extensions & Validation & Debug */
-    VkDebugUtilsMessengerEXT debugMessenger;
-    ConstParamArr            validationLayers;
-    ConstParamArr            customInstanceExt;
-    ConstParamArr            customDeviceExt;
+    VkDebugUtilsMessengerEXT * debugMessenger;
+    ConstParamArr              validationLayers;
+    ConstParamArr              customInstanceExt;
+    ConstParamArr              customDeviceExt;
     /*Swap Chain*/
     VkSwapchainKHR *        swapChain;
     SwapChainSupportDetails swapChainDetails;
@@ -100,5 +100,11 @@ BasedGraphicsPipeline ( Engine * engine );
 
 VkResult
 BasedGraphicsPipelineCleanup ( Engine * engine );
+
+VkResult
+BasedRenderPassCreate ( Engine * engine );
+
+VkResult
+BasedRenderPassCleanup ( Engine * engine );
 
 #endif /* BASED_CODE_VK_INIT_H */

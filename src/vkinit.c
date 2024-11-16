@@ -4,6 +4,19 @@
 #include "resources/shaders/Triangle_frag.h"
 #include "resources/shaders/Triangle_vert.h"
 
+#ifndef NDEBUG
+#define free( ptr )                                                         \
+    do {                                                                    \
+        if ( ptr )                                                          \
+        {                                                                   \
+            printf ( "try free(: %s )\n", #ptr );                           \
+            free ( ptr );                                                   \
+            ptr = NULL;                                                     \
+        }                                                                   \
+        else { printf ( "Attempted to free a null pointer: %s\n", #ptr ); } \
+    } while ( 0 )
+#endif
+
 static inline int
 u_strcmp ( const char * str1, const char * str2 )
 {
@@ -83,93 +96,6 @@ chooseBestSwapChainConfig ( const SwapChainSupportDetails * details,
     return config;
 }
 
-int
-querySwapChainSupport ( Engine * engine )
-{
-    VkResult                  result  = -1;
-    SwapChainSupportDetails * details = &engine->swapChainDetails;
-
-    VkSurfaceCapabilitiesKHR capabilities;
-    if ( vkGetPhysicalDeviceSurfaceCapabilitiesKHR (
-             engine->physicalDevice, engine->surface, &capabilities ) !=
-         VK_SUCCESS )
-    {
-        _DEBUG_P ( "error: failed to query surface capabilities\n" );
-        goto defer_cleanup;
-    }
-    details->capabilities = capabilities;
-
-    uint32_t formatCount = 0;
-    if ( vkGetPhysicalDeviceSurfaceFormatsKHR (
-             engine->physicalDevice, engine->surface, &formatCount, NULL ) !=
-         VK_SUCCESS )
-    {
-        _DEBUG_P ( "error: failed to get surface format count\n" );
-        goto defer_cleanup;
-    }
-
-    if ( formatCount > 0 )
-    {
-        details->formats = ( VkSurfaceFormatKHR * ) malloc (
-            formatCount * sizeof ( VkSurfaceFormatKHR ) );
-        if ( ! details->formats )
-        {
-            _DEBUG_P ( "error: malloc failed for formats\n" );
-            goto defer_cleanup;
-        }
-
-        if ( vkGetPhysicalDeviceSurfaceFormatsKHR ( engine->physicalDevice,
-                                                    engine->surface,
-                                                    &formatCount,
-                                                    details->formats ) !=
-             VK_SUCCESS )
-        {
-            _DEBUG_P ( "error: failed to get surface formats\n" );
-            goto defer_cleanup;
-        }
-    }
-    details->formatCount = formatCount;
-
-    uint32_t modeCount = 0;
-    if ( vkGetPhysicalDeviceSurfacePresentModesKHR (
-             engine->physicalDevice, engine->surface, &modeCount, NULL ) !=
-         VK_SUCCESS )
-    {
-        _DEBUG_P ( "error: failed to get present mode count\n" );
-        goto defer_cleanup;
-    }
-
-    if ( modeCount > 0 )
-    {
-        details->modes = ( VkPresentModeKHR * ) malloc (
-            modeCount * sizeof ( VkPresentModeKHR ) );
-        if ( ! details->modes )
-        {
-            _DEBUG_P ( "error: malloc failed for present modes\n" );
-            goto defer_cleanup;
-        }
-
-        if ( vkGetPhysicalDeviceSurfacePresentModesKHR (
-                 engine->physicalDevice,
-                 engine->surface,
-                 &modeCount,
-                 details->modes ) != VK_SUCCESS )
-        {
-            _DEBUG_P ( "error: failed to get present modes\n" );
-            goto defer_cleanup;
-        }
-    }
-    details->modeCount = modeCount;
-
-    result = VK_SUCCESS;
-
-defer_cleanup:
-    if ( result && details->modes ) free ( details->modes );
-    if ( result && details->formats ) free ( details->formats );
-
-    return result;
-}
-
 int32_t
 findGraphicsQueueFamily ( Engine * engine )
 {
@@ -180,7 +106,7 @@ findGraphicsQueueFamily ( Engine * engine )
         if ( vkGetPhysicalDeviceSurfaceSupportKHR ( //
                  engine->physicalDevice,
                  i,
-                 engine->surface,
+                 *engine->surface,
                  &presentSupport ) )
             continue;
         if ( ( engine->queueFamilies->queues[ i ].queueFlags &
@@ -194,7 +120,11 @@ findGraphicsQueueFamily ( Engine * engine )
 VkResult
 BasedVKInit ( Engine * engine )
 {
-    VkResult rcode = VK_INCOMPLETE;
+    VkResult                  rcode            = VK_INCOMPLETE;
+    const char **             vkExtensionsFull = NULL;
+    VkLayerProperties *       availableLayers  = NULL;
+    VkPhysicalDevice *        devices          = NULL;
+    VkQueueFamilyProperties * queues           = NULL;
 
     /* Debug logger instantiated */
     VkDebugUtilsMessengerCreateInfoEXT debugMsgrCreateInfo = {};
@@ -234,10 +164,10 @@ BasedVKInit ( Engine * engine )
     if ( ! vkExtensions )
     {
         _DEBUG_P ( "error: getting extensions\n" );
-        goto r_base;
+        goto defer_cleanup;
     }
 
-    const char ** vkExtensionsFull = ( const char ** ) malloc (
+    vkExtensionsFull = ( const char ** ) malloc (
         ( extensionCount + engine->customInstanceExt.size ) *
         sizeof ( const char * ) );
     if ( ! vkExtensionsFull )
@@ -245,9 +175,8 @@ BasedVKInit ( Engine * engine )
         _DEBUG_P ( "error: malloc vkExtensions of size: %zu\n",
                    ( extensionCount + engine->customInstanceExt.size ) *
                        sizeof ( const char * ) );
-        goto r_base;
+        goto defer_cleanup;
     }
-    /* defer: free(vkExtensionsFull) */
 
     for ( size_t i = 0; i < extensionCount; i++ )
         vkExtensionsFull[ i ] = vkExtensions[ i ];
@@ -274,25 +203,23 @@ BasedVKInit ( Engine * engine )
     {
 
         _DEBUG_P ( "error: getting available layers count: %d\n", opResult );
-        goto defer_free_extensions;
+        goto defer_cleanup;
     }
 
-    VkLayerProperties * availableLayers = ( VkLayerProperties * ) malloc (
+    availableLayers = ( VkLayerProperties * ) malloc (
         layerCount * sizeof ( VkLayerProperties ) );
     if ( ! availableLayers )
     {
         _DEBUG_P ( "error: malloc availableLayers of size: %zu\n",
                    layerCount * sizeof ( VkLayerProperties ) );
-        goto defer_free_extensions;
+        goto defer_cleanup;
     }
-
-    /* defer: free(availableLayers) */
 
     if ( ( opResult = vkEnumerateInstanceLayerProperties (
                &layerCount, availableLayers ) ) )
     {
         _DEBUG_P ( "error: getting available layers: %d\n", opResult );
-        goto defer_free_availableLayers;
+        goto defer_cleanup;
     }
 
     for ( size_t i = 0; i < engine->validationLayers.size; i++ )
@@ -310,7 +237,7 @@ BasedVKInit ( Engine * engine )
         if ( ! layerFound )
         {
             _DEBUG_P ( "error: validation layer not available: %zu\n", i );
-            goto defer_free_availableLayers;
+            goto defer_cleanup;
         }
     }
 
@@ -324,77 +251,100 @@ BasedVKInit ( Engine * engine )
     else { createInfo.enabledLayerCount = 0; }
 
     /* Vk instance creation */
-    if ( ( opResult = vkCreateInstance (
-               &createInfo, NULL, &( engine->vkInstance ) ) ) )
+    engine->vkInstance = malloc ( sizeof ( VkInstance ) );
+    if ( ! engine->vkInstance )
     {
-        _DEBUG_P ( "error: creating VK instance: %d\n", opResult );
-        goto defer_free_availableLayers;
+        _DEBUG_P ( "error: malloc vkInstance of size: %zu\n",
+                   sizeof ( VkInstance ) );
+        goto defer_cleanup;
     }
-
-    /* defer: vkDestroyInstance */
+    if ( ( opResult =
+               vkCreateInstance ( &createInfo, NULL, engine->vkInstance ) ) )
+    {
+        free ( engine->vkInstance );
+        engine->vkInstance = NULL;
+        _DEBUG_P ( "error: creating VK instance: %d\n", opResult );
+        goto defer_cleanup;
+    }
 
     /* Debug Messenger Creation */
     if ( engine->validationLayers.size )
     {
+        engine->debugMessenger =
+            malloc ( sizeof ( VkDebugUtilsMessengerEXT ) );
+        if ( ! engine->debugMessenger )
+        {
+            _DEBUG_P ( "error: malloc debugMessenger of size: %zu\n",
+                       sizeof ( VkDebugUtilsMessengerEXT ) );
+            goto defer_cleanup;
+        }
         PFN_vkCreateDebugUtilsMessengerEXT func =
             ( PFN_vkCreateDebugUtilsMessengerEXT ) vkGetInstanceProcAddr (
-                engine->vkInstance, "vkCreateDebugUtilsMessengerEXT" );
+                *engine->vkInstance, "vkCreateDebugUtilsMessengerEXT" );
         if ( ! func )
         {
             _DEBUG_P ( "error: retrieving DebugUtilsEXT func: %d\n",
                        opResult );
-            goto defer_destroy_instance;
+            goto defer_cleanup;
         }
-        if ( ( opResult = func ( engine->vkInstance,
+        if ( ( opResult = func ( *engine->vkInstance,
                                  &debugMsgrCreateInfo,
                                  NULL,
-                                 &( engine->debugMessenger ) ) ) )
+                                 engine->debugMessenger ) ) )
         {
+            free ( engine->debugMessenger );
+            engine->debugMessenger = NULL;
             _DEBUG_P ( "error: creating DebugUtilsMessenger: %d\n",
                        opResult );
-            goto defer_destroy_instance;
+            goto defer_cleanup;
         }
-        /* defer: on fail: destroyDebugUtilsMessenger */
     }
 
     /* Create VK+GLFW Surface */
-    if ( glfwCreateWindowSurface ( engine->vkInstance,
-                                   engine->window,
-                                   NULL,
-                                   &( engine->surface ) ) != VK_SUCCESS )
+
+    engine->surface = malloc ( sizeof ( VkSurfaceKHR ) );
+    if ( ! engine->surface )
     {
-        _DEBUG_P ( "error: failed to create VK surface\n" );
-        goto defer_destroy_degub_msgr;
+        _DEBUG_P ( "error: malloc surface of size: %zu\n",
+                   sizeof ( VkSurfaceKHR ) );
+        goto defer_cleanup;
     }
-    /* defer: vkDestroySurface */
+    if ( ( opResult = glfwCreateWindowSurface ( //
+               *engine->vkInstance,
+               engine->window,
+               NULL,
+               engine->surface ) ) != VK_SUCCESS )
+    {
+        free ( engine->surface );
+        engine->surface = NULL;
+        _DEBUG_P ( "error: failed to create VK surface: %d\n", opResult );
+        goto defer_cleanup;
+    }
 
     /* Physical Device Selection */
 
     uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices ( engine->vkInstance, &deviceCount, NULL );
+    vkEnumeratePhysicalDevices ( *engine->vkInstance, &deviceCount, NULL );
     if ( deviceCount == 0 )
     {
         _DEBUG_P ( "error: no physical devices found" );
-        goto defer_destroySurface;
+        goto defer_cleanup;
     }
 
-    VkPhysicalDevice * devices =
-        malloc ( deviceCount * sizeof ( VkPhysicalDevice ) );
+    devices = malloc ( deviceCount * sizeof ( VkPhysicalDevice ) );
 
     if ( ! devices )
     {
         _DEBUG_P ( "error: malloc devices of size : %zu\n",
                    deviceCount * sizeof ( VkPhysicalDevice ) );
-        goto defer_destroySurface;
+        goto defer_cleanup;
     }
 
-    /* defer: free(devices) */
-
     if ( ( opResult = vkEnumeratePhysicalDevices (
-               engine->vkInstance, &deviceCount, devices ) ) )
+               *engine->vkInstance, &deviceCount, devices ) ) )
     {
         _DEBUG_P ( "error: getting Physical Devices : %d\n", opResult );
-        goto defer_free_devices;
+        goto defer_cleanup;
     }
 
     /* Iterate through devices and select suitable */
@@ -432,7 +382,7 @@ BasedVKInit ( Engine * engine )
     if ( ! engine->physicalDevice )
     {
         _DEBUG_P ( "error: getting Physical Devices : no suitable found\n" );
-        goto defer_free_devices;
+        goto defer_cleanup;
     }
 
     /* Get Queue Families for current device */
@@ -444,18 +394,17 @@ BasedVKInit ( Engine * engine )
     if ( ! queueFamilyCount )
     {
         _DEBUG_P ( "error: no queues available on the device" );
-        goto defer_free_devices;
+        goto defer_cleanup;
     }
 
-    VkQueueFamilyProperties * queues = ( VkQueueFamilyProperties * ) malloc (
+    queues = ( VkQueueFamilyProperties * ) malloc (
         queueFamilyCount * sizeof ( VkQueueFamilyProperties ) );
     if ( ! queues )
     {
         _DEBUG_P ( "error: malloc queues of size : %zu\n",
                    queueFamilyCount * sizeof ( VkQueueFamilyProperties ) );
-        goto defer_destroy_degub_msgr;
+        goto defer_cleanup;
     }
-    /* defer: ON FAIL: free(queues) */
 
     vkGetPhysicalDeviceQueueFamilyProperties (
         engine->physicalDevice, &queueFamilyCount, queues );
@@ -468,9 +417,8 @@ BasedVKInit ( Engine * engine )
     {
         _DEBUG_P ( "error: malloc queueFamilies struct of size : %zu\n",
                    sizeof ( QueueFamilies ) );
-        goto defer_free_queues;
+        goto defer_cleanup;
     }
-    /* defer: ON FAIL: free(queuesFamilies) */
 
     queuesFamilies->count  = queueFamilyCount;
     queuesFamilies->queues = queues;
@@ -481,7 +429,7 @@ BasedVKInit ( Engine * engine )
     if ( graphicsFamilyIdx == -1 )
     {
         _DEBUG_P ( "error: suitable queue Family not fount\n" );
-        goto defer_free_queueFamilies;
+        goto defer_cleanup;
     }
     engine->graphicsQueueIdx = graphicsFamilyIdx;
     engine->presentQueueIdx  = graphicsFamilyIdx;
@@ -509,56 +457,119 @@ BasedVKInit ( Engine * engine )
         logDeviceInfo.ppEnabledLayerNames = engine->validationLayers.data;
     }
 
-    if ( ( opResult = vkCreateDevice ( engine->physicalDevice,
-                                       &logDeviceInfo,
-                                       NULL,
-                                       &( engine->device ) ) ) )
+    engine->device = malloc ( sizeof ( VkDevice ) );
+    if ( ! engine->device )
     {
-        _DEBUG_P ( "error: creating Logical Device : %d\n", opResult );
-        goto defer_free_queueFamilies;
+        _DEBUG_P ( "error: malloc device of size: %zu\n",
+                   sizeof ( VkDevice ) );
+        goto defer_cleanup;
     }
 
-    /* Get Vk Queue */
+    if ( ( opResult = vkCreateDevice ( //
+               engine->physicalDevice,
+               &logDeviceInfo,
+               NULL,
+               engine->device ) ) )
+    {
+        free ( engine->device );
+        engine->device = NULL;
+        _DEBUG_P ( "error: creating Logical Device : %d\n", opResult );
+        goto defer_cleanup;
+    }
+
+    /* Get Vk Queues */
 
     vkGetDeviceQueue (
-        engine->device, graphicsFamilyIdx, 0, &( engine->graphicsQueue ) );
+        *engine->device, graphicsFamilyIdx, 0, &( engine->graphicsQueue ) );
     vkGetDeviceQueue (
-        engine->device, graphicsFamilyIdx, 0, &( engine->presentQueue ) );
+        *engine->device, graphicsFamilyIdx, 0, &( engine->presentQueue ) );
 
-    querySwapChainSupport ( engine );
+    /* Get SwapChain Supported Params */
+    SwapChainSupportDetails * details = &engine->swapChainDetails;
+
+    VkSurfaceCapabilitiesKHR capabilities;
+    if ( ( opResult = vkGetPhysicalDeviceSurfaceCapabilitiesKHR (
+               engine->physicalDevice, *engine->surface, &capabilities ) ) !=
+         VK_SUCCESS )
+    {
+        _DEBUG_P ( "error: failed to query surface capabilities: %d\n",
+                   opResult );
+        goto defer_cleanup;
+    }
+    details->capabilities = capabilities;
+
+    uint32_t formatCount = 0;
+    if ( ( opResult =
+               vkGetPhysicalDeviceSurfaceFormatsKHR ( engine->physicalDevice,
+                                                      *engine->surface,
+                                                      &formatCount,
+                                                      NULL ) ) != VK_SUCCESS )
+    {
+        _DEBUG_P ( "error: failed to get surface format count: %d\n",
+                   opResult );
+        goto defer_cleanup;
+    }
+
+    if ( formatCount > 0 )
+    {
+        details->formats = ( VkSurfaceFormatKHR * ) malloc (
+            formatCount * sizeof ( VkSurfaceFormatKHR ) );
+        if ( ! details->formats )
+        {
+            _DEBUG_P ( "error: malloc failed for formats\n" );
+            goto defer_cleanup;
+        }
+
+        if ( vkGetPhysicalDeviceSurfaceFormatsKHR ( engine->physicalDevice,
+                                                    *engine->surface,
+                                                    &formatCount,
+                                                    details->formats ) !=
+             VK_SUCCESS )
+        {
+            _DEBUG_P ( "error: failed to get surface formats\n" );
+            goto defer_cleanup;
+        }
+    }
+    details->formatCount = formatCount;
+
+    uint32_t modeCount = 0;
+    if ( vkGetPhysicalDeviceSurfacePresentModesKHR (
+             engine->physicalDevice, *engine->surface, &modeCount, NULL ) !=
+         VK_SUCCESS )
+    {
+        _DEBUG_P ( "error: failed to get present mode count\n" );
+        goto defer_cleanup;
+    }
+
+    if ( modeCount > 0 )
+    {
+        details->modes = ( VkPresentModeKHR * ) malloc (
+            modeCount * sizeof ( VkPresentModeKHR ) );
+        if ( ! details->modes )
+        {
+            _DEBUG_P ( "error: malloc failed for present modes\n" );
+            goto defer_cleanup;
+        }
+
+        if ( vkGetPhysicalDeviceSurfacePresentModesKHR (
+                 engine->physicalDevice,
+                 *engine->surface,
+                 &modeCount,
+                 details->modes ) != VK_SUCCESS )
+        {
+            _DEBUG_P ( "error: failed to get present modes\n" );
+            goto defer_cleanup;
+        }
+    }
+    details->modeCount = modeCount;
 
     rcode = VK_SUCCESS;
 
-defer_free_swapChainSupportDetails:
-    if ( rcode ) free ( engine->swapChainDetails.formats );
-    if ( rcode ) free ( engine->swapChainDetails.modes );
-defer_free_queueFamilies:
-    if ( rcode ) free ( queuesFamilies );
-defer_free_queues:
-    if ( rcode ) free ( queues );
-defer_free_devices:
-    free ( devices );
-defer_destroySurface:
-    if ( rcode )
-        vkDestroySurfaceKHR ( engine->vkInstance, engine->surface, NULL );
-defer_destroy_degub_msgr:
-    if ( rcode && engine->validationLayers.size )
-    {
-        PFN_vkDestroyDebugUtilsMessengerEXT func =
-            ( PFN_vkDestroyDebugUtilsMessengerEXT ) vkGetInstanceProcAddr (
-                engine->vkInstance, "vkDestroyDebugUtilsMessengerEXT" );
-        if ( func != NULL )
-        {
-            func ( engine->vkInstance, engine->debugMessenger, NULL );
-        }
-    }
-defer_destroy_instance:
-    if ( rcode ) vkDestroyInstance ( engine->vkInstance, NULL );
-defer_free_availableLayers:
-    free ( availableLayers );
-defer_free_extensions:
-    free ( vkExtensionsFull );
-r_base:
+defer_cleanup:
+    if ( rcode ) BasedVKCleanup ( engine );
+    if ( devices ) free ( devices );
+    if ( vkExtensionsFull ) free ( vkExtensionsFull );
+    if ( availableLayers ) free ( availableLayers );
     return rcode;
 }
 
@@ -575,7 +586,7 @@ CringedSwapChain ( Engine * engine )
 
     VkSwapchainCreateInfoKHR createInfo = {};
     createInfo.sType         = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    createInfo.surface       = engine->surface;
+    createInfo.surface       = *engine->surface;
     createInfo.minImageCount = engine->swapChainConfig.imageCount;
     createInfo.imageFormat   = engine->swapChainConfig.surfaceFormat.format;
     createInfo.imageColorSpace =
@@ -615,7 +626,7 @@ CringedSwapChain ( Engine * engine )
         goto defer_cleanup;
     }
     if ( ( opResult = vkCreateSwapchainKHR ( //
-               engine->device,
+               *engine->device,
                &createInfo,
                NULL,
                engine->swapChain ) ) != VK_SUCCESS )
@@ -628,7 +639,7 @@ CringedSwapChain ( Engine * engine )
 
     uint32_t imageCount = 0;
     if ( ( opResult = vkGetSwapchainImagesKHR ( //
-               engine->device,
+               *engine->device,
                *( engine->swapChain ),
                &imageCount,
                NULL ) ) != VK_SUCCESS ||
@@ -649,7 +660,7 @@ CringedSwapChain ( Engine * engine )
     }
 
     if ( ( opResult = vkGetSwapchainImagesKHR ( //
-               engine->device,
+               *engine->device,
                *( engine->swapChain ),
                &imageCount,
                engine->swapChainImages ) ) != VK_SUCCESS )
@@ -690,7 +701,7 @@ CringedSwapChain ( Engine * engine )
 
         swIView_createinfo.image = engine->swapChainImages[ i ];
         if ( ( opResult = vkCreateImageView (
-                              engine->device,
+                              *engine->device,
                               &swIView_createinfo,
                               NULL,
                               &( engine->swapChainImageViews[ i ] ) ) !=
@@ -766,6 +777,34 @@ defer_cleanup:
  */
 
 VkResult
+BasedRenderPassCreate ( Engine * engine )
+{
+    VkResult opResult, rcode = VK_INCOMPLETE;
+
+    VkAttachmentDescription colorAttachment = {};
+    colorAttachment.format  = engine->swapChainConfig.surfaceFormat.format;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    rcode = VK_SUCCESS;
+
+defer_cleanup:
+    if ( rcode ) BasedRenderPassCleanup ( engine );
+    return rcode;
+}
+
+VkResult
+BasedRenderPassCleanup ( Engine * engine )
+{
+    return VK_SUCCESS;
+}
+
+VkResult
 BasedGraphicsPipeline ( Engine * engine )
 {
     VkResult opResult, rcode = VK_INCOMPLETE;
@@ -776,7 +815,7 @@ BasedGraphicsPipeline ( Engine * engine )
     if ( ! engine->triVert )
     {
         _DEBUG_P ( "error: failed to load shader Triangle_vert.spv\n" );
-        goto r_base;
+        goto defer_cleanup;
     }
 
     engine->triFrag = cringedCreateShader ( //
@@ -803,7 +842,7 @@ BasedGraphicsPipeline ( Engine * engine )
     createInfo.codeSize = engine->triVert->size;
     createInfo.pCode    = ( uint32_t * ) engine->triVert->data;
     if ( ( opResult = vkCreateShaderModule ( //
-               engine->device,
+               *engine->device,
                &createInfo,
                NULL,
                engine->triVert->s_module ) ) != VK_SUCCESS )
@@ -833,7 +872,7 @@ BasedGraphicsPipeline ( Engine * engine )
     createInfo.codeSize = engine->triFrag->size;
     createInfo.pCode    = ( uint32_t * ) engine->triFrag->data;
     if ( ( opResult = vkCreateShaderModule ( //
-               engine->device,
+               *engine->device,
                &createInfo,
                NULL,
                engine->triFrag->s_module ) ) != VK_SUCCESS )
@@ -963,7 +1002,7 @@ BasedGraphicsPipeline ( Engine * engine )
     pipelineLayoutInfo.pPushConstantRanges    = NULL;
 
     if ( ( opResult = vkCreatePipelineLayout ( //
-               engine->device,
+               *engine->device,
                &pipelineLayoutInfo,
                NULL,
                engine->pipelineLayout ) ) != VK_SUCCESS )
@@ -973,13 +1012,11 @@ BasedGraphicsPipeline ( Engine * engine )
         _DEBUG_P ( "error: creating PipelineLayout: %d\n", opResult );
         goto defer_cleanup;
     }
-    /* defer: on fail: destroy pipeline layout */
 
     rcode = VK_SUCCESS;
 
 defer_cleanup:
     if ( rcode ) BasedGraphicsPipelineCleanup ( engine );
-r_base:
     return rcode;
 }
 
@@ -989,19 +1026,19 @@ BasedGraphicsPipelineCleanup ( Engine * engine )
     if ( engine->pipelineLayout )
     {
         vkDestroyPipelineLayout (
-            engine->device, *( engine->pipelineLayout ), NULL );
+            *engine->device, *( engine->pipelineLayout ), NULL );
         free ( engine->pipelineLayout );
     }
     if ( engine->triFrag->s_module )
     {
         vkDestroyShaderModule (
-            engine->device, *( engine->triFrag->s_module ), NULL );
+            *engine->device, *( engine->triFrag->s_module ), NULL );
         free ( engine->triFrag->s_module );
     }
     if ( engine->triVert->s_module )
     {
         vkDestroyShaderModule (
-            engine->device, *( engine->triVert->s_module ), NULL );
+            *engine->device, *( engine->triVert->s_module ), NULL );
         free ( engine->triVert->s_module );
     }
     if ( engine->triFrag ) cringedDestroyShader ( engine->triFrag );
@@ -1017,14 +1054,14 @@ BasedSwapChainCleanup ( Engine * engine )
     if ( engine->swapChain )
     {
         vkDestroySwapchainKHR (
-            engine->device, *( engine->swapChain ), NULL );
+            *engine->device, *( engine->swapChain ), NULL );
         free ( engine->swapChain );
     }
     if ( engine->swapChainImageViews )
     {
         for ( size_t i = 0; i < engine->swapChainImagesCount; i++ )
             vkDestroyImageView (
-                engine->device, engine->swapChainImageViews[ i ], NULL );
+                *engine->device, engine->swapChainImageViews[ i ], NULL );
         free ( engine->swapChainImageViews );
     }
     return VK_SUCCESS;
@@ -1033,23 +1070,41 @@ BasedSwapChainCleanup ( Engine * engine )
 VkResult
 BasedVKCleanup ( Engine * engine )
 {
-    if ( engine->debugMessenger && engine->validationLayers.size )
+    if ( engine->debugMessenger )
     {
         PFN_vkDestroyDebugUtilsMessengerEXT func =
             ( PFN_vkDestroyDebugUtilsMessengerEXT ) vkGetInstanceProcAddr (
-                engine->vkInstance, "vkDestroyDebugUtilsMessengerEXT" );
+                *engine->vkInstance, "vkDestroyDebugUtilsMessengerEXT" );
         if ( func != NULL )
         {
-            func ( engine->vkInstance, engine->debugMessenger, NULL );
+            func ( *engine->vkInstance, *engine->debugMessenger, NULL );
         }
+        free ( engine->debugMessenger );
     }
-    free ( engine->queueFamilies->queues );
-    free ( engine->queueFamilies );
-    free ( engine->swapChainDetails.formats );
-    free ( engine->swapChainDetails.modes );
-
-    vkDestroySurfaceKHR ( engine->vkInstance, engine->surface, NULL );
-    vkDestroyDevice ( engine->device, NULL );
-    vkDestroyInstance ( engine->vkInstance, NULL );
+    if ( engine->queueFamilies )
+    {
+        if ( engine->queueFamilies->queues )
+            free ( engine->queueFamilies->queues );
+        free ( engine->queueFamilies );
+    }
+    if ( engine->swapChainDetails.formats )
+        free ( engine->swapChainDetails.formats );
+    if ( engine->swapChainDetails.modes )
+        free ( engine->swapChainDetails.modes );
+    if ( engine->surface )
+    {
+        vkDestroySurfaceKHR ( *engine->vkInstance, *engine->surface, NULL );
+        free ( engine->surface );
+    }
+    if ( engine->device )
+    {
+        vkDestroyDevice ( *engine->device, NULL );
+        free ( engine->device );
+    }
+    if ( engine->vkInstance )
+    {
+        vkDestroyInstance ( *engine->vkInstance, NULL );
+        free ( engine->vkInstance );
+    }
     return VK_SUCCESS;
 }
