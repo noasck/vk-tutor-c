@@ -856,6 +856,114 @@ defer_cleanup:
  */
 
 VkResult
+BasedSyncSetup ( Engine * engine )
+{
+    VkResult opResult, rcode = VK_INCOMPLETE;
+
+    VkSemaphore ** semaphores[] = { &engine->sync.imageAvailable,
+                                    &engine->sync.renderFinished };
+    VkFence **     fences[]     = { &engine->sync.inFlight };
+
+    VkFenceCreateInfo fenceInfo         = {};
+    fenceInfo.sType                     = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags                     = VK_FENCE_CREATE_SIGNALED_BIT;
+    VkSemaphoreCreateInfo semaphoreInfo = {};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    for ( uint32_t i = 0;
+          i < sizeof ( semaphores ) / sizeof ( semaphores[ 0 ] );
+          i++ )
+    {
+        *semaphores[ i ] = malloc ( sizeof ( VkSemaphore ) );
+        if ( ! *semaphores[ i ] )
+        {
+            _DEBUG_P ( "error: malloc semaphore of size: %zu\n",
+                       sizeof ( VkSemaphore ) );
+            goto defer_cleanup;
+        }
+
+        if ( ( opResult = vkCreateSemaphore ( //
+                   *engine->device,
+                   &semaphoreInfo,
+                   NULL,
+                   *semaphores[ i ] ) ) != VK_SUCCESS )
+        {
+            free ( *semaphores[ i ] );
+            *semaphores[ i ] = NULL;
+            _DEBUG_P ( "error: creating frame semaphore [%d]: code %d\n",
+                       i,
+                       opResult );
+            goto defer_cleanup;
+        }
+    }
+
+    for ( uint32_t i = 0; i < sizeof ( fences ) / sizeof ( fences[ 0 ] );
+          i++ )
+    {
+        *fences[ i ] = malloc ( sizeof ( VkFence ) );
+        if ( ! *fences[ i ] )
+        {
+            _DEBUG_P ( "error: malloc Fence of size: %zu\n",
+                       sizeof ( VkFence ) );
+            goto defer_cleanup;
+        }
+
+        if ( ( opResult = vkCreateFence ( //
+                   *engine->device,
+                   &fenceInfo,
+                   NULL,
+                   *fences[ i ] ) ) != VK_SUCCESS )
+        {
+            free ( *fences[ i ] );
+            *fences[ i ] = NULL;
+            _DEBUG_P (
+                "error: creating frame fence [%d]: code %d\n", i, opResult );
+            goto defer_cleanup;
+        }
+    }
+
+    rcode = VK_SUCCESS;
+
+defer_cleanup:
+    if ( rcode ) BasedGraphicsPipelineCleanup ( engine );
+    return rcode;
+}
+
+VkResult
+BasedSyncCleanup ( Engine * engine )
+{
+    VkSemaphore ** semaphores[] = { &engine->sync.imageAvailable,
+                                    &engine->sync.renderFinished };
+    VkFence **     fences[]     = { &engine->sync.inFlight };
+
+    for ( uint32_t i = 0;
+          i < sizeof ( semaphores ) / sizeof ( semaphores[ 0 ] );
+          i++ )
+    {
+
+        if ( *semaphores[ i ] )
+        {
+            vkDestroySemaphore ( *engine->device, **semaphores[ i ], NULL );
+            free ( *semaphores[ i ] );
+            *semaphores[ i ] = NULL;
+        }
+    }
+
+    for ( uint32_t i = 0; i < sizeof ( fences ) / sizeof ( fences[ 0 ] );
+          i++ )
+    {
+
+        if ( *fences[ i ] )
+        {
+            vkDestroyFence ( *engine->device, **fences[ i ], NULL );
+            free ( *fences[ i ] );
+            *fences[ i ] = NULL;
+        }
+    }
+    return VK_SUCCESS;
+}
+
+VkResult
 CringedFrameBuffers ( Engine * engine )
 {
     VkResult opResult, rcode = VK_INCOMPLETE;
@@ -1153,12 +1261,23 @@ BasedGraphicsPipeline ( Engine * engine )
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments    = &colorAttachmentRef;
 
+    /* NOTE: dep to wait until image ready */
+    VkSubpassDependency dependency = {};
+    dependency.srcSubpass          = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass          = 0;
+    dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
     VkRenderPassCreateInfo renderPassInfo = {};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     renderPassInfo.attachmentCount = 1;
     renderPassInfo.pAttachments    = &colorAttachment;
     renderPassInfo.subpassCount    = 1;
     renderPassInfo.pSubpasses      = &subpass;
+    renderPassInfo.dependencyCount = 1;
+    renderPassInfo.pDependencies   = &dependency;
 
     engine->renderPass = malloc ( sizeof ( VkRenderPass ) );
     if ( ! engine->renderPass )
@@ -1324,4 +1443,58 @@ BasedVKCleanup ( Engine * engine )
         free ( engine->vkInstance );
     }
     return VK_SUCCESS;
+}
+
+/* =============================================
+ *            COMMAND BUFFER UTILS
+ * ============================================= */
+
+VkResult
+cringedRecordCommandBuffer ( Engine *          engine,
+                             VkCommandBuffer * commandBuffer,
+                             uint32_t          imageIndex )
+{
+    VkResult opResult, rcode = VK_INCOMPLETE;
+
+    VkCommandBufferBeginInfo beginInfo = {};
+    beginInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags            = 0;
+    beginInfo.pInheritanceInfo = NULL;
+    if ( ( opResult = vkBeginCommandBuffer ( *commandBuffer, &beginInfo ) ) !=
+         VK_SUCCESS )
+    {
+        _DEBUG_P ( "error: beginCommandBuffer: %d\n", opResult );
+        goto abort;
+    }
+
+    VkRenderPassBeginInfo renderPassInfo = {};
+    renderPassInfo.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass  = *engine->renderPass;
+    renderPassInfo.framebuffer = engine->swapChainFrameBuffers[ imageIndex ];
+    renderPassInfo.renderArea.offset.x = 0;
+    renderPassInfo.renderArea.offset.y = 0;
+    renderPassInfo.renderArea.extent   = engine->swapChainConfig.extent;
+    VkClearValue clearColor            = {
+                   .color = { .float32 = { 0.0f, 0.0f, 0.0f, 1.0f } } };
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues    = &clearColor;
+    vkCmdBeginRenderPass (
+        *engine->commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+    vkCmdBindPipeline ( *engine->commandBuffer,
+                        VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        *engine->pipeline );
+
+    /* NOTE: Viewport and Scissors are static. No need to set up. */
+    vkCmdDraw ( *engine->commandBuffer, 3, 1, 0, 0 );
+    vkCmdEndRenderPass ( *engine->commandBuffer );
+    if ( ( opResult = vkEndCommandBuffer ( *engine->commandBuffer ) ) !=
+         VK_SUCCESS )
+    {
+        _DEBUG_P ( "error: endCommandBuffer: %d\n", opResult );
+        goto abort;
+    }
+
+    rcode = VK_SUCCESS;
+abort:
+    return rcode;
 }

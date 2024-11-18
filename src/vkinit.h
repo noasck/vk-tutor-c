@@ -51,6 +51,13 @@ typedef struct
 
 typedef struct
 {
+    VkSemaphore * imageAvailable;
+    VkSemaphore * renderFinished;
+    VkFence *     inFlight;
+} BasedSynchronization;
+
+typedef struct
+{
     VkInstance * vkInstance;
     /* Platform Extension */
     GLFWwindow *     window;
@@ -87,6 +94,8 @@ typedef struct
     /* Command Pools & Buffers */
     VkCommandPool *   commandPool;
     VkCommandBuffer * commandBuffer;
+    /* Synchronization */
+    BasedSynchronization sync;
 
 } Engine;
 
@@ -125,5 +134,16 @@ CringedCommandBuffer ( Engine * engine );
 
 VkResult
 CringedCommandBufferCleanup ( Engine * engine );
+
+VkResult
+BasedSyncCleanup ( Engine * engine );
+
+VkResult
+BasedSyncSetup ( Engine * engine );
+
+VkResult
+cringedRecordCommandBuffer ( Engine *          engine,
+                             VkCommandBuffer * commandBuffer,
+                             uint32_t          imageIndex );
 
 #endif /* BASED_CODE_VK_INIT_H */
