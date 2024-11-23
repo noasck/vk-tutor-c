@@ -58,8 +58,12 @@ typedef struct
 
 typedef struct
 {
-    VkInstance * vkInstance;
-    /* Platform Extension */
+    /* Frames & buffering */
+    uint8_t  MaxFramesInFlight;
+    uint32_t cFrame;
+    uint8_t  winResized;
+    /* MAIN + Platform EXT */
+    VkInstance *     vkInstance;
     GLFWwindow *     window;
     VkSurfaceKHR *   surface;
     VkDevice *       device;
@@ -93,10 +97,11 @@ typedef struct
     VkRenderPass *     renderPass;
     /* Command Pools & Buffers */
     VkCommandPool *   commandPool;
+    uint32_t          commandBufferCount;
     VkCommandBuffer * commandBuffer;
     /* Synchronization */
-    BasedSynchronization sync;
-
+    uint32_t               syncCount;
+    BasedSynchronization * sync;
 } Engine;
 
 VkResult
@@ -106,7 +111,7 @@ VkResult
 BasedVKCleanup ( Engine * engine );
 
 VkResult
-BasedSwapChainCleanup ( Engine * engine );
+CringedSwapChainCleanup ( Engine * engine );
 
 VkResult
 CringedSwapChain ( Engine * engine );
@@ -116,12 +121,6 @@ BasedGraphicsPipeline ( Engine * engine );
 
 VkResult
 BasedGraphicsPipelineCleanup ( Engine * engine );
-
-VkResult
-BasedRenderPassCreate ( Engine * engine );
-
-VkResult
-BasedRenderPassCleanup ( Engine * engine );
 
 VkResult
 CringedFrameBuffersCleanup ( Engine * engine );
@@ -142,8 +141,11 @@ VkResult
 BasedSyncSetup ( Engine * engine );
 
 VkResult
-cringedRecordCommandBuffer ( Engine *          engine,
+CringedRecordCommandBuffer ( Engine *          engine,
                              VkCommandBuffer * commandBuffer,
                              uint32_t          imageIndex );
+
+void
+CringedSwapChainRecreate ( Engine * engine );
 
 #endif /* BASED_CODE_VK_INIT_H */

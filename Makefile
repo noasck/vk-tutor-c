@@ -38,10 +38,14 @@ $(SHADER_RES_DIR)/%.h: $(SHADER_DIR)/%.spv | $(SHADER_RES_DIR)
 	xxd -i $< > $@
 
 $(OUTPUT): $(SRC) | $(BUILD_DIR)
-	gcc $(CFLAGS) -o $@ $(SRC) -DLLVM_MESA $(LDFLAGS)
+	gcc -g $(CFLAGS) -o $@ $(SRC) -DLLVM_MESA $(LDFLAGS)
 
 run: $(OUTPUT)
-	VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json ./$<
+	XLIB_SKIP_ARGB_VISUALS=1 \
+	LIBGL_ALWAYS_SOFTWARE=1 \
+	VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+	VK_LAYER_PATH=/usr/share/vulkan/explicit_layer.d:/usr/share/vulkan/implicit_layer.d \
+	./$<
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -6,6 +6,13 @@ glfwErrorCallback ( int error, const char * description )
     _DEBUG_P ( "GLFW Error [%d]: %s\n", error, description );
 }
 
+static void
+windowResizeCallback ( GLFWwindow * window, int width, int height )
+{
+    Engine * engine    = ( Engine * ) glfwGetWindowUserPointer ( window );
+    engine->winResized = true;
+}
+
 uint8_t
 BasedGLFWInit ( Engine * engine )
 {
@@ -28,6 +35,9 @@ BasedGLFWInit ( Engine * engine )
         glfwTerminate ();
         return 1;
     }
+
+    glfwSetWindowUserPointer ( engine->window, engine );
+    glfwSetFramebufferSizeCallback ( engine->window, windowResizeCallback );
 
     return 0;
 }
@@ -57,39 +67,62 @@ basedDrawFrame ( Engine * engine )
         - Present the swap chain image
     */
     // TODO: handle all error
-    vkWaitForFences (
-        *engine->device, 1, engine->sync.inFlight, VK_TRUE, UINT64_MAX );
-    vkResetFences ( *engine->device, 1, engine->sync.inFlight );
+
+    if ( engine->winResized )
+    {
+        engine->winResized = 0;
+        CringedSwapChainRecreate ( engine );
+        return;
+    }
+
+    VkResult opResult;
+    vkWaitForFences ( *engine->device,
+                      1,
+                      engine->sync[ engine->cFrame ].inFlight,
+                      VK_TRUE,
+                      UINT64_MAX );
 
     uint32_t imageIndex;
-    vkAcquireNextImageKHR ( //
+    opResult = vkAcquireNextImageKHR ( //
         *engine->device,
         *engine->swapChain,
         UINT64_MAX,
-        *engine->sync.imageAvailable,
+        *engine->sync[ engine->cFrame ].imageAvailable,
         VK_NULL_HANDLE,
         &imageIndex );
 
-    vkResetCommandBuffer ( *engine->commandBuffer, 0 );
+    if ( opResult == VK_ERROR_OUT_OF_DATE_KHR ||
+         opResult == VK_SUBOPTIMAL_KHR )
+        engine->winResized = 1;
 
-    cringedRecordCommandBuffer ( engine, engine->commandBuffer, imageIndex );
+    vkResetFences (
+        *engine->device, 1, engine->sync[ engine->cFrame ].inFlight );
 
-    VkSubmitInfo submitInfo               = {};
-    submitInfo.sType                      = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    VkSemaphore          waitSemaphores[] = { *engine->sync.imageAvailable };
-    VkPipelineStageFlags waitStages[]     = {
+    vkResetCommandBuffer ( engine->commandBuffer[ engine->cFrame ], 0 );
+
+    CringedRecordCommandBuffer (
+        engine, &engine->commandBuffer[ engine->cFrame ], imageIndex );
+
+    VkSubmitInfo submitInfo      = {};
+    submitInfo.sType             = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    VkSemaphore waitSemaphores[] = {
+        *engine->sync[ engine->cFrame ].imageAvailable };
+    VkPipelineStageFlags waitStages[] = {
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    submitInfo.waitSemaphoreCount   = 1;
-    submitInfo.pWaitSemaphores      = waitSemaphores;
-    submitInfo.pWaitDstStageMask    = waitStages;
-    submitInfo.commandBufferCount   = 1;
-    submitInfo.pCommandBuffers      = engine->commandBuffer;
-    VkSemaphore signalSemaphores[]  = { *engine->sync.renderFinished };
+    submitInfo.waitSemaphoreCount  = 1;
+    submitInfo.pWaitSemaphores     = waitSemaphores;
+    submitInfo.pWaitDstStageMask   = waitStages;
+    submitInfo.commandBufferCount  = 1;
+    submitInfo.pCommandBuffers     = &engine->commandBuffer[ engine->cFrame ];
+    VkSemaphore signalSemaphores[] = {
+        *engine->sync[ engine->cFrame ].renderFinished };
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores    = signalSemaphores;
 
-    vkQueueSubmit (
-        engine->graphicsQueue, 1, &submitInfo, *engine->sync.inFlight );
+    vkQueueSubmit ( engine->graphicsQueue,
+                    1,
+                    &submitInfo,
+                    *engine->sync[ engine->cFrame ].inFlight );
 
     VkPresentInfoKHR presentInfo   = {};
     presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -101,6 +134,8 @@ basedDrawFrame ( Engine * engine )
     presentInfo.pImageIndices      = &imageIndex;
     presentInfo.pResults           = NULL;
     vkQueuePresentKHR ( engine->presentQueue, &presentInfo );
+
+    engine->cFrame = ( engine->cFrame + 1 ) % engine->MaxFramesInFlight;
 }
 
 uint8_t
@@ -122,7 +157,7 @@ cleanup ()
     CringedCommandBufferCleanup ( CRINGE_ENGINE );
     CringedFrameBuffersCleanup ( CRINGE_ENGINE );
     BasedGraphicsPipelineCleanup ( CRINGE_ENGINE );
-    BasedSwapChainCleanup ( CRINGE_ENGINE );
+    CringedSwapChainCleanup ( CRINGE_ENGINE );
     BasedVKCleanup ( CRINGE_ENGINE );
     return 0;
 }
@@ -133,7 +168,10 @@ CringeInitEngine ( void )
     Engine * engine = ( Engine * ) malloc ( sizeof ( Engine ) );
     if ( engine == NULL ) { return NULL; }
 
-    engine->physicalDevice = VK_NULL_HANDLE;
+    engine->MaxFramesInFlight = MAX_FRAMES_IN_FLIGHT;
+    engine->cFrame            = 0;
+    engine->winResized        = 0;
+    engine->physicalDevice    = VK_NULL_HANDLE;
 
     engine->validationLayers.data  = layers;
     engine->customInstanceExt.data = instanceExtensions;

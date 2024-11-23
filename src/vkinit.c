@@ -17,6 +17,18 @@
     } while ( 0 )
 #endif
 
+#define U_ALLOC( var, type, len )                                  \
+    do {                                                           \
+        var = ( type * ) malloc ( ( len ) * sizeof ( type ) );     \
+        if ( ! var )                                               \
+        {                                                          \
+            _DEBUG_P ( "error: ualloc of %s of size %zu",          \
+                       #var,                                       \
+                       ( size_t ) ( ( len ) * sizeof ( type ) ) ); \
+            exit ( EXIT_FAILURE );                                 \
+        }                                                          \
+    } while ( 0 )
+
 static inline int
 u_strcmp ( const char * str1, const char * str2 )
 {
@@ -132,6 +144,7 @@ BasedVKInit ( Engine * engine )
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     debugMsgrCreateInfo.messageSeverity =
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+        // VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     debugMsgrCreateInfo.messageType =
@@ -167,16 +180,9 @@ BasedVKInit ( Engine * engine )
         goto defer_cleanup;
     }
 
-    vkExtensionsFull = ( const char ** ) malloc (
-        ( extensionCount + engine->customInstanceExt.size ) *
-        sizeof ( const char * ) );
-    if ( ! vkExtensionsFull )
-    {
-        _DEBUG_P ( "error: malloc vkExtensions of size: %zu\n",
-                   ( extensionCount + engine->customInstanceExt.size ) *
-                       sizeof ( const char * ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( vkExtensionsFull,
+              const char *,
+              extensionCount + engine->customInstanceExt.size );
 
     for ( size_t i = 0; i < extensionCount; i++ )
         vkExtensionsFull[ i ] = vkExtensions[ i ];
@@ -206,14 +212,7 @@ BasedVKInit ( Engine * engine )
         goto defer_cleanup;
     }
 
-    availableLayers = ( VkLayerProperties * ) malloc (
-        layerCount * sizeof ( VkLayerProperties ) );
-    if ( ! availableLayers )
-    {
-        _DEBUG_P ( "error: malloc availableLayers of size: %zu\n",
-                   layerCount * sizeof ( VkLayerProperties ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC(availableLayers, VkLayerProperties, layerCount);
 
     if ( ( opResult = vkEnumerateInstanceLayerProperties (
                &layerCount, availableLayers ) ) )
@@ -484,6 +483,117 @@ BasedVKInit ( Engine * engine )
     vkGetDeviceQueue (
         *engine->device, graphicsFamilyIdx, 0, &( engine->presentQueue ) );
 
+    rcode = VK_SUCCESS;
+
+defer_cleanup:
+    if ( rcode ) BasedVKCleanup ( engine );
+    if ( devices )
+    {
+        free ( devices );
+        devices = NULL;
+    };
+    if ( vkExtensionsFull )
+    {
+        free ( vkExtensionsFull );
+        vkExtensionsFull = NULL;
+    }
+    if ( availableLayers )
+    {
+        free ( availableLayers );
+        availableLayers = NULL;
+    }
+    return rcode;
+}
+
+VkResult
+CringedCommandBuffer ( Engine * engine )
+{
+
+    VkResult opResult, rcode = VK_INCOMPLETE;
+
+    VkCommandPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = engine->graphicsQueueIdx;
+
+    engine->commandPool =
+        ( VkCommandPool * ) malloc ( sizeof ( VkCommandPool ) );
+    if ( ! engine->commandPool )
+    {
+        _DEBUG_P ( "error: malloc command Pool: %zu\n",
+                   sizeof ( VkCommandPool ) );
+        goto defer_cleanup;
+    }
+
+    if ( ( opResult = vkCreateCommandPool (
+               *engine->device, &poolInfo, NULL, engine->commandPool ) ) !=
+         VK_SUCCESS )
+    {
+        free ( engine->commandPool );
+        engine->commandPool = NULL;
+        _DEBUG_P ( "error: creating commandPool: %d\n", opResult );
+        goto defer_cleanup;
+    }
+
+    engine->commandBufferCount = engine->MaxFramesInFlight;
+
+    VkCommandBufferAllocateInfo allocInfo = {};
+    allocInfo.sType       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = *engine->commandPool;
+    allocInfo.level       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = engine->commandBufferCount;
+
+    engine->commandBuffer = ( VkCommandBuffer * ) malloc (
+        engine->commandBufferCount * sizeof ( VkCommandBuffer ) );
+    if ( ! engine->commandBuffer )
+    {
+        _DEBUG_P ( "error: malloc command Buffer: %zu\n",
+                   engine->commandBufferCount * sizeof ( VkCommandBuffer ) );
+        goto defer_cleanup;
+    }
+
+    if ( ( opResult = vkAllocateCommandBuffers (
+               *engine->device, &allocInfo, engine->commandBuffer ) ) !=
+         VK_SUCCESS )
+    {
+        free ( engine->commandBuffer );
+        engine->commandBuffer = NULL;
+        _DEBUG_P ( "error: creating commandBuffer: %d\n", opResult );
+        goto defer_cleanup;
+    }
+    rcode = VK_SUCCESS;
+
+defer_cleanup:
+    if ( rcode ) CringedCommandBufferCleanup ( engine );
+    return rcode;
+}
+
+VkResult
+CringedCommandBufferCleanup ( Engine * engine )
+{
+    if ( engine->commandBuffer )
+    {
+        vkFreeCommandBuffers ( *engine->device,
+                               *engine->commandPool,
+                               engine->commandBufferCount,
+                               engine->commandBuffer );
+        free ( engine->commandBuffer );
+        engine->commandBuffer = NULL;
+    }
+    if ( engine->commandPool )
+    {
+        vkDestroyCommandPool ( *engine->device, *engine->commandPool, NULL );
+        free ( engine->commandPool );
+        engine->commandPool = NULL;
+    }
+    return VK_SUCCESS;
+}
+
+VkResult
+CringedSwapChain ( Engine * engine )
+{
+    VkResult opResult, rcode = VK_INCOMPLETE;
+
     /* Get SwapChain Supported Params */
     SwapChainSupportDetails * details = &engine->swapChainDetails;
 
@@ -562,100 +672,6 @@ BasedVKInit ( Engine * engine )
         }
     }
     details->modeCount = modeCount;
-
-    rcode = VK_SUCCESS;
-
-defer_cleanup:
-    if ( rcode ) BasedVKCleanup ( engine );
-    if ( devices ) free ( devices );
-    if ( vkExtensionsFull ) free ( vkExtensionsFull );
-    if ( availableLayers ) free ( availableLayers );
-    return rcode;
-}
-
-VkResult
-CringedCommandBuffer ( Engine * engine )
-{
-
-    VkResult opResult, rcode = VK_INCOMPLETE;
-
-    VkCommandPoolCreateInfo poolInfo = {};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    poolInfo.queueFamilyIndex = engine->graphicsQueueIdx;
-
-    engine->commandPool =
-        ( VkCommandPool * ) malloc ( sizeof ( VkCommandPool ) );
-    if ( ! engine->commandPool )
-    {
-        _DEBUG_P ( "error: malloc command Pool: %zu\n",
-                   sizeof ( VkCommandPool ) );
-        goto defer_cleanup;
-    }
-
-    if ( ( opResult = vkCreateCommandPool (
-               *engine->device, &poolInfo, NULL, engine->commandPool ) ) !=
-         VK_SUCCESS )
-    {
-        free ( engine->commandPool );
-        engine->commandPool = NULL;
-        _DEBUG_P ( "error: creating commandPool: %d\n", opResult );
-        goto defer_cleanup;
-    }
-
-    VkCommandBufferAllocateInfo allocInfo = {};
-    allocInfo.sType       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = *engine->commandPool;
-    allocInfo.level       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
-
-    engine->commandBuffer =
-        ( VkCommandBuffer * ) malloc ( sizeof ( VkCommandBuffer ) );
-    if ( ! engine->commandBuffer )
-    {
-        _DEBUG_P ( "error: malloc command Buffer: %zu\n",
-                   sizeof ( VkCommandBuffer ) );
-        goto defer_cleanup;
-    }
-
-    if ( ( opResult = vkAllocateCommandBuffers (
-               *engine->device, &allocInfo, engine->commandBuffer ) ) !=
-         VK_SUCCESS )
-    {
-        free ( engine->commandBuffer );
-        engine->commandBuffer = NULL;
-        _DEBUG_P ( "error: creating commandBuffer: %d\n", opResult );
-        goto defer_cleanup;
-    }
-    rcode = VK_SUCCESS;
-
-defer_cleanup:
-    if ( rcode ) CringedCommandBufferCleanup ( engine );
-    return rcode;
-}
-
-VkResult
-CringedCommandBufferCleanup ( Engine * engine )
-{
-    if ( engine->commandPool )
-    {
-        vkFreeCommandBuffers (
-            *engine->device, *engine->commandPool, 1, engine->commandBuffer );
-        free ( engine->commandBuffer );
-    }
-    if ( engine->commandPool )
-    {
-        vkDestroyCommandPool ( *engine->device, *engine->commandPool, NULL );
-        free ( engine->commandPool );
-    }
-    if ( engine->commandBuffer ) { free ( engine->commandBuffer ); }
-    return VK_SUCCESS;
-}
-
-VkResult
-CringedSwapChain ( Engine * engine )
-{
-    VkResult opResult, rcode = VK_INCOMPLETE;
 
     int win_width, win_height;
     glfwGetFramebufferSize ( engine->window, &win_width, &win_height );
@@ -798,7 +814,7 @@ CringedSwapChain ( Engine * engine )
 
     rcode = VK_SUCCESS;
 defer_cleanup:
-    if ( rcode ) BasedSwapChainCleanup ( engine );
+    if ( rcode ) CringedSwapChainCleanup ( engine );
     return rcode;
 }
 
@@ -860,67 +876,87 @@ BasedSyncSetup ( Engine * engine )
 {
     VkResult opResult, rcode = VK_INCOMPLETE;
 
-    VkSemaphore ** semaphores[] = { &engine->sync.imageAvailable,
-                                    &engine->sync.renderFinished };
-    VkFence **     fences[]     = { &engine->sync.inFlight };
-
-    VkFenceCreateInfo fenceInfo         = {};
-    fenceInfo.sType                     = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceInfo.flags                     = VK_FENCE_CREATE_SIGNALED_BIT;
-    VkSemaphoreCreateInfo semaphoreInfo = {};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    for ( uint32_t i = 0;
-          i < sizeof ( semaphores ) / sizeof ( semaphores[ 0 ] );
-          i++ )
+    engine->sync = malloc ( engine->MaxFramesInFlight *
+                            sizeof ( BasedSynchronization ) );
+    if ( ! engine->sync )
     {
-        *semaphores[ i ] = malloc ( sizeof ( VkSemaphore ) );
-        if ( ! *semaphores[ i ] )
-        {
-            _DEBUG_P ( "error: malloc semaphore of size: %zu\n",
-                       sizeof ( VkSemaphore ) );
-            goto defer_cleanup;
-        }
-
-        if ( ( opResult = vkCreateSemaphore ( //
-                   *engine->device,
-                   &semaphoreInfo,
-                   NULL,
-                   *semaphores[ i ] ) ) != VK_SUCCESS )
-        {
-            free ( *semaphores[ i ] );
-            *semaphores[ i ] = NULL;
-            _DEBUG_P ( "error: creating frame semaphore [%d]: code %d\n",
-                       i,
-                       opResult );
-            goto defer_cleanup;
-        }
+        _DEBUG_P ( "error: malloc sync array of size: %zu",
+                   engine->MaxFramesInFlight *
+                       sizeof ( BasedSynchronization ) );
+        goto defer_cleanup;
     }
 
-    for ( uint32_t i = 0; i < sizeof ( fences ) / sizeof ( fences[ 0 ] );
-          i++ )
+    for ( uint32_t m = 0; m < engine->MaxFramesInFlight; m++ )
     {
-        *fences[ i ] = malloc ( sizeof ( VkFence ) );
-        if ( ! *fences[ i ] )
+        VkSemaphore ** semaphores[] = {
+            &( engine->sync[ m ].imageAvailable ),
+            &( engine->sync[ m ].renderFinished ) };
+        VkFence ** fences[] = { &( engine->sync[ m ].inFlight ) };
+
+        VkFenceCreateInfo fenceInfo = {};
+        fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags             = VK_FENCE_CREATE_SIGNALED_BIT;
+        VkSemaphoreCreateInfo semaphoreInfo = {};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        for ( uint32_t i = 0;
+              i < sizeof ( semaphores ) / sizeof ( semaphores[ 0 ] );
+              i++ )
         {
-            _DEBUG_P ( "error: malloc Fence of size: %zu\n",
-                       sizeof ( VkFence ) );
-            goto defer_cleanup;
+            *semaphores[ i ] = malloc ( sizeof ( VkSemaphore ) );
+            if ( ! *semaphores[ i ] )
+            {
+                engine->syncCount = i + 1;
+                _DEBUG_P ( "error: malloc semaphore of size: %zu\n",
+                           sizeof ( VkSemaphore ) );
+                goto defer_cleanup;
+            }
+
+            if ( ( opResult = vkCreateSemaphore ( //
+                       *engine->device,
+                       &semaphoreInfo,
+                       NULL,
+                       *semaphores[ i ] ) ) != VK_SUCCESS )
+            {
+                engine->syncCount = i + 1;
+                free ( *semaphores[ i ] );
+                *semaphores[ i ] = NULL;
+                _DEBUG_P ( "error: creating frame semaphore [%d]: code %d\n",
+                           i,
+                           opResult );
+                goto defer_cleanup;
+            }
         }
 
-        if ( ( opResult = vkCreateFence ( //
-                   *engine->device,
-                   &fenceInfo,
-                   NULL,
-                   *fences[ i ] ) ) != VK_SUCCESS )
+        for ( uint32_t i = 0; i < sizeof ( fences ) / sizeof ( fences[ 0 ] );
+              i++ )
         {
-            free ( *fences[ i ] );
-            *fences[ i ] = NULL;
-            _DEBUG_P (
-                "error: creating frame fence [%d]: code %d\n", i, opResult );
-            goto defer_cleanup;
+            *fences[ i ] = malloc ( sizeof ( VkFence ) );
+            if ( ! *fences[ i ] )
+            {
+                engine->syncCount = i + 1;
+                _DEBUG_P ( "error: malloc Fence of size: %zu\n",
+                           sizeof ( VkFence ) );
+                goto defer_cleanup;
+            }
+
+            if ( ( opResult = vkCreateFence ( //
+                       *engine->device,
+                       &fenceInfo,
+                       NULL,
+                       *fences[ i ] ) ) != VK_SUCCESS )
+            {
+                engine->syncCount = i + 1;
+                free ( *fences[ i ] );
+                *fences[ i ] = NULL;
+                _DEBUG_P ( "error: creating frame fence [%d]: code %d\n",
+                           i,
+                           opResult );
+                goto defer_cleanup;
+            }
         }
     }
+    engine->syncCount = engine->MaxFramesInFlight;
 
     rcode = VK_SUCCESS;
 
@@ -932,33 +968,46 @@ defer_cleanup:
 VkResult
 BasedSyncCleanup ( Engine * engine )
 {
-    VkSemaphore ** semaphores[] = { &engine->sync.imageAvailable,
-                                    &engine->sync.renderFinished };
-    VkFence **     fences[]     = { &engine->sync.inFlight };
 
-    for ( uint32_t i = 0;
-          i < sizeof ( semaphores ) / sizeof ( semaphores[ 0 ] );
-          i++ )
-    {
-
-        if ( *semaphores[ i ] )
+    if ( engine->sync )
+        for ( uint32_t m = 0; m < engine->syncCount; m++ )
         {
-            vkDestroySemaphore ( *engine->device, **semaphores[ i ], NULL );
-            free ( *semaphores[ i ] );
-            *semaphores[ i ] = NULL;
-        }
-    }
+            VkSemaphore ** semaphores[] = {
+                &( engine->sync[ m ].imageAvailable ),
+                &( engine->sync[ m ].renderFinished ) };
+            VkFence ** fences[] = { &( engine->sync[ m ].inFlight ) };
+            for ( uint32_t i = 0;
+                  i < sizeof ( semaphores ) / sizeof ( semaphores[ 0 ] );
+                  i++ )
+            {
 
-    for ( uint32_t i = 0; i < sizeof ( fences ) / sizeof ( fences[ 0 ] );
-          i++ )
+                if ( *semaphores[ i ] )
+                {
+                    vkDestroySemaphore (
+                        *engine->device, **semaphores[ i ], NULL );
+                    free ( *semaphores[ i ] );
+                    *semaphores[ i ] = NULL;
+                }
+            }
+
+            for ( uint32_t i = 0;
+                  i < sizeof ( fences ) / sizeof ( fences[ 0 ] );
+                  i++ )
+            {
+
+                if ( *fences[ i ] )
+                {
+                    vkDestroyFence ( *engine->device, **fences[ i ], NULL );
+                    free ( *fences[ i ] );
+                    *fences[ i ] = NULL;
+                }
+            }
+        }
+
+    if ( engine->sync )
     {
-
-        if ( *fences[ i ] )
-        {
-            vkDestroyFence ( *engine->device, **fences[ i ], NULL );
-            free ( *fences[ i ] );
-            *fences[ i ] = NULL;
-        }
+        free ( engine->sync );
+        engine->sync = NULL;
     }
     return VK_SUCCESS;
 }
@@ -1028,6 +1077,7 @@ CringedFrameBuffersCleanup ( Engine * engine )
         }
 
         free ( engine->swapChainFrameBuffers );
+        engine->swapChainFrameBuffers = NULL;
     }
     return VK_SUCCESS;
 }
@@ -1352,46 +1402,87 @@ BasedGraphicsPipelineCleanup ( Engine * engine )
     {
         vkDestroyPipeline ( *engine->device, *engine->pipeline, NULL );
         free ( engine->pipeline );
+        engine->pipeline = NULL;
     }
     if ( engine->renderPass )
     {
         vkDestroyRenderPass (
             *engine->device, *( engine->renderPass ), NULL );
         free ( engine->renderPass );
+        engine->renderPass = NULL;
     }
     if ( engine->pipelineLayout )
     {
         vkDestroyPipelineLayout (
             *engine->device, *( engine->pipelineLayout ), NULL );
         free ( engine->pipelineLayout );
+        engine->pipelineLayout = NULL;
     }
     if ( engine->triFrag->s_module )
     {
         vkDestroyShaderModule (
             *engine->device, *( engine->triFrag->s_module ), NULL );
         free ( engine->triFrag->s_module );
+        engine->triFrag->s_module = NULL;
     }
     if ( engine->triVert->s_module )
     {
         vkDestroyShaderModule (
             *engine->device, *( engine->triVert->s_module ), NULL );
         free ( engine->triVert->s_module );
+        engine->triVert->s_module = NULL;
     }
     if ( engine->triFrag ) cringedDestroyShader ( engine->triFrag );
     if ( engine->triVert ) cringedDestroyShader ( engine->triVert );
     return VK_SUCCESS;
 }
 
-VkResult
-BasedSwapChainCleanup ( Engine * engine )
+void
+CringedSwapChainRecreate ( Engine * engine )
 {
+    int width = 0, height = 0;
+    glfwGetFramebufferSize ( engine->window, &width, &height );
+    while ( width == 0 || height == 0 )
+    {
+        glfwGetFramebufferSize ( engine->window, &width, &height );
+        glfwWaitEvents ();
+    }
+    vkDeviceWaitIdle ( *engine->device );
 
-    if ( engine->swapChainImages ) free ( engine->swapChainImages );
+    /* Cleanup */
+    CringedFrameBuffersCleanup ( engine );
+    CringedSwapChainCleanup ( engine );
+
+    /* Recreate */
+    CringedSwapChain ( engine );
+    CringedFrameBuffers ( engine );
+}
+
+VkResult
+CringedSwapChainCleanup ( Engine * engine )
+{
+    if ( engine->swapChainDetails.formats )
+    {
+        free ( engine->swapChainDetails.formats );
+        engine->swapChainDetails.formats = NULL;
+    }
+    if ( engine->swapChainDetails.modes )
+    {
+        free ( engine->swapChainDetails.modes );
+        engine->swapChainDetails.modes = NULL;
+    }
+
+    if ( engine->swapChainImages )
+    {
+        free ( engine->swapChainImages );
+        engine->swapChainImages = NULL;
+    }
     if ( engine->swapChain )
     {
         vkDestroySwapchainKHR (
             *engine->device, *( engine->swapChain ), NULL );
         free ( engine->swapChain );
+        engine->swapChain = NULL;
     }
     if ( engine->swapChainImageViews )
     {
@@ -1399,6 +1490,7 @@ BasedSwapChainCleanup ( Engine * engine )
             vkDestroyImageView (
                 *engine->device, engine->swapChainImageViews[ i ], NULL );
         free ( engine->swapChainImageViews );
+        engine->swapChainImageViews = NULL;
     }
     return VK_SUCCESS;
 }
@@ -1416,31 +1508,32 @@ BasedVKCleanup ( Engine * engine )
             func ( *engine->vkInstance, *engine->debugMessenger, NULL );
         }
         free ( engine->debugMessenger );
+        engine->debugMessenger = NULL;
     }
     if ( engine->queueFamilies )
     {
         if ( engine->queueFamilies->queues )
             free ( engine->queueFamilies->queues );
         free ( engine->queueFamilies );
+        engine->queueFamilies = NULL;
     }
-    if ( engine->swapChainDetails.formats )
-        free ( engine->swapChainDetails.formats );
-    if ( engine->swapChainDetails.modes )
-        free ( engine->swapChainDetails.modes );
     if ( engine->surface )
     {
         vkDestroySurfaceKHR ( *engine->vkInstance, *engine->surface, NULL );
         free ( engine->surface );
+        engine->surface = NULL;
     }
     if ( engine->device )
     {
         vkDestroyDevice ( *engine->device, NULL );
         free ( engine->device );
+        engine->device = NULL;
     }
     if ( engine->vkInstance )
     {
         vkDestroyInstance ( *engine->vkInstance, NULL );
         free ( engine->vkInstance );
+        engine->vkInstance = NULL;
     }
     return VK_SUCCESS;
 }
@@ -1450,7 +1543,7 @@ BasedVKCleanup ( Engine * engine )
  * ============================================= */
 
 VkResult
-cringedRecordCommandBuffer ( Engine *          engine,
+CringedRecordCommandBuffer ( Engine *          engine,
                              VkCommandBuffer * commandBuffer,
                              uint32_t          imageIndex )
 {
@@ -1479,16 +1572,14 @@ cringedRecordCommandBuffer ( Engine *          engine,
     renderPassInfo.clearValueCount = 1;
     renderPassInfo.pClearValues    = &clearColor;
     vkCmdBeginRenderPass (
-        *engine->commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
-    vkCmdBindPipeline ( *engine->commandBuffer,
-                        VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        *engine->pipeline );
+        *commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+    vkCmdBindPipeline (
+        *commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *engine->pipeline );
 
     /* NOTE: Viewport and Scissors are static. No need to set up. */
-    vkCmdDraw ( *engine->commandBuffer, 3, 1, 0, 0 );
-    vkCmdEndRenderPass ( *engine->commandBuffer );
-    if ( ( opResult = vkEndCommandBuffer ( *engine->commandBuffer ) ) !=
-         VK_SUCCESS )
+    vkCmdDraw ( *commandBuffer, 3, 1, 0, 0 );
+    vkCmdEndRenderPass ( *commandBuffer );
+    if ( ( opResult = vkEndCommandBuffer ( *commandBuffer ) ) != VK_SUCCESS )
     {
         _DEBUG_P ( "error: endCommandBuffer: %d\n", opResult );
         goto abort;

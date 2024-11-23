@@ -28,6 +28,7 @@ Engine * CRINGE_ENGINE;
 Engine *
 CringeInitEngine ( void );
 
+const int    MAX_FRAMES_IN_FLIGHT = 2;
 const char * layers[]             = { "VK_LAYER_KHRONOS_validation" };
 const char * instanceExtensions[] = {
     VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
