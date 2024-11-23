@@ -182,7 +182,17 @@ BasedVKInit ( Engine * engine )
 
     U_ALLOC ( vkExtensionsFull,
               const char *,
-              extensionCount + engine->customInstanceExt.size );
+              extensionsCount + engine->customInstanceExt.size );
+    vkExtensionsFull = ( const char ** ) malloc (
+        ( extensionCount + engine->customInstanceExt.size ) *
+        sizeof ( const char * ) );
+    if ( ! vkExtensionsFull )
+    {
+        _DEBUG_P ( "error: malloc vkExtensions of size: %zu\n",
+                   ( extensionCount + engine->customInstanceExt.size ) *
+                       sizeof ( const char * ) );
+        goto defer_cleanup;
+    }
 
     for ( size_t i = 0; i < extensionCount; i++ )
         vkExtensionsFull[ i ] = vkExtensions[ i ];
@@ -212,7 +222,14 @@ BasedVKInit ( Engine * engine )
         goto defer_cleanup;
     }
 
-    U_ALLOC(availableLayers, VkLayerProperties, layerCount);
+    availableLayers = ( VkLayerProperties * ) malloc (
+        layerCount * sizeof ( VkLayerProperties ) );
+    if ( ! availableLayers )
+    {
+        _DEBUG_P ( "error: malloc availableLayers of size: %zu\n",
+                   layerCount * sizeof ( VkLayerProperties ) );
+        goto defer_cleanup;
+    }
 
     if ( ( opResult = vkEnumerateInstanceLayerProperties (
                &layerCount, availableLayers ) ) )
