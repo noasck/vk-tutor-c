@@ -182,17 +182,7 @@ BasedVKInit ( Engine * engine )
 
     U_ALLOC ( vkExtensionsFull,
               const char *,
-              extensionsCount + engine->customInstanceExt.size );
-    vkExtensionsFull = ( const char ** ) malloc (
-        ( extensionCount + engine->customInstanceExt.size ) *
-        sizeof ( const char * ) );
-    if ( ! vkExtensionsFull )
-    {
-        _DEBUG_P ( "error: malloc vkExtensions of size: %zu\n",
-                   ( extensionCount + engine->customInstanceExt.size ) *
-                       sizeof ( const char * ) );
-        goto defer_cleanup;
-    }
+              extensionCount + engine->customInstanceExt.size );
 
     for ( size_t i = 0; i < extensionCount; i++ )
         vkExtensionsFull[ i ] = vkExtensions[ i ];
@@ -222,14 +212,7 @@ BasedVKInit ( Engine * engine )
         goto defer_cleanup;
     }
 
-    availableLayers = ( VkLayerProperties * ) malloc (
-        layerCount * sizeof ( VkLayerProperties ) );
-    if ( ! availableLayers )
-    {
-        _DEBUG_P ( "error: malloc availableLayers of size: %zu\n",
-                   layerCount * sizeof ( VkLayerProperties ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( availableLayers, VkLayerProperties, layerCount );
 
     if ( ( opResult = vkEnumerateInstanceLayerProperties (
                &layerCount, availableLayers ) ) )
@@ -267,13 +250,8 @@ BasedVKInit ( Engine * engine )
     else { createInfo.enabledLayerCount = 0; }
 
     /* Vk instance creation */
-    engine->vkInstance = malloc ( sizeof ( VkInstance ) );
-    if ( ! engine->vkInstance )
-    {
-        _DEBUG_P ( "error: malloc vkInstance of size: %zu\n",
-                   sizeof ( VkInstance ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->vkInstance, VkInstance, 1 );
+
     if ( ( opResult =
                vkCreateInstance ( &createInfo, NULL, engine->vkInstance ) ) )
     {
@@ -286,14 +264,7 @@ BasedVKInit ( Engine * engine )
     /* Debug Messenger Creation */
     if ( engine->validationLayers.size )
     {
-        engine->debugMessenger =
-            malloc ( sizeof ( VkDebugUtilsMessengerEXT ) );
-        if ( ! engine->debugMessenger )
-        {
-            _DEBUG_P ( "error: malloc debugMessenger of size: %zu\n",
-                       sizeof ( VkDebugUtilsMessengerEXT ) );
-            goto defer_cleanup;
-        }
+        U_ALLOC ( engine->debugMessenger, VkDebugUtilsMessengerEXT, 1 );
         PFN_vkCreateDebugUtilsMessengerEXT func =
             ( PFN_vkCreateDebugUtilsMessengerEXT ) vkGetInstanceProcAddr (
                 *engine->vkInstance, "vkCreateDebugUtilsMessengerEXT" );
@@ -318,13 +289,7 @@ BasedVKInit ( Engine * engine )
 
     /* Create VK+GLFW Surface */
 
-    engine->surface = malloc ( sizeof ( VkSurfaceKHR ) );
-    if ( ! engine->surface )
-    {
-        _DEBUG_P ( "error: malloc surface of size: %zu\n",
-                   sizeof ( VkSurfaceKHR ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->surface, VkSurfaceKHR, 1 );
     if ( ( opResult = glfwCreateWindowSurface ( //
                *engine->vkInstance,
                engine->window,
@@ -347,14 +312,7 @@ BasedVKInit ( Engine * engine )
         goto defer_cleanup;
     }
 
-    devices = malloc ( deviceCount * sizeof ( VkPhysicalDevice ) );
-
-    if ( ! devices )
-    {
-        _DEBUG_P ( "error: malloc devices of size : %zu\n",
-                   deviceCount * sizeof ( VkPhysicalDevice ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( devices, VkPhysicalDevice, deviceCount );
 
     if ( ( opResult = vkEnumeratePhysicalDevices (
                *engine->vkInstance, &deviceCount, devices ) ) )
@@ -413,29 +371,14 @@ BasedVKInit ( Engine * engine )
         goto defer_cleanup;
     }
 
-    queues = ( VkQueueFamilyProperties * ) malloc (
-        queueFamilyCount * sizeof ( VkQueueFamilyProperties ) );
-    if ( ! queues )
-    {
-        _DEBUG_P ( "error: malloc queues of size : %zu\n",
-                   queueFamilyCount * sizeof ( VkQueueFamilyProperties ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( queues, VkQueueFamilyProperties, queueFamilyCount );
 
     vkGetPhysicalDeviceQueueFamilyProperties (
         engine->physicalDevice, &queueFamilyCount, queues );
 
     /* Save queues to engine instance */
-    QueueFamilies * queuesFamilies =
-        ( QueueFamilies * ) malloc ( sizeof ( QueueFamilies ) );
-
-    if ( ! queuesFamilies )
-    {
-        _DEBUG_P ( "error: malloc queueFamilies struct of size : %zu\n",
-                   sizeof ( QueueFamilies ) );
-        goto defer_cleanup;
-    }
-
+    QueueFamilies * queuesFamilies;
+    U_ALLOC ( queuesFamilies, QueueFamilies, 1 );
     queuesFamilies->count  = queueFamilyCount;
     queuesFamilies->queues = queues;
     engine->queueFamilies  = queuesFamilies;
@@ -473,13 +416,7 @@ BasedVKInit ( Engine * engine )
         logDeviceInfo.ppEnabledLayerNames = engine->validationLayers.data;
     }
 
-    engine->device = malloc ( sizeof ( VkDevice ) );
-    if ( ! engine->device )
-    {
-        _DEBUG_P ( "error: malloc device of size: %zu\n",
-                   sizeof ( VkDevice ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->device, VkDevice, 1 );
 
     if ( ( opResult = vkCreateDevice ( //
                engine->physicalDevice,
@@ -533,14 +470,7 @@ CringedCommandBuffer ( Engine * engine )
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = engine->graphicsQueueIdx;
 
-    engine->commandPool =
-        ( VkCommandPool * ) malloc ( sizeof ( VkCommandPool ) );
-    if ( ! engine->commandPool )
-    {
-        _DEBUG_P ( "error: malloc command Pool: %zu\n",
-                   sizeof ( VkCommandPool ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->commandPool, VkCommandPool, 1 );
 
     if ( ( opResult = vkCreateCommandPool (
                *engine->device, &poolInfo, NULL, engine->commandPool ) ) !=
@@ -560,14 +490,8 @@ CringedCommandBuffer ( Engine * engine )
     allocInfo.level       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocInfo.commandBufferCount = engine->commandBufferCount;
 
-    engine->commandBuffer = ( VkCommandBuffer * ) malloc (
-        engine->commandBufferCount * sizeof ( VkCommandBuffer ) );
-    if ( ! engine->commandBuffer )
-    {
-        _DEBUG_P ( "error: malloc command Buffer: %zu\n",
-                   engine->commandBufferCount * sizeof ( VkCommandBuffer ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC (
+        engine->commandBuffer, VkCommandBuffer, engine->commandBufferCount );
 
     if ( ( opResult = vkAllocateCommandBuffers (
                *engine->device, &allocInfo, engine->commandBuffer ) ) !=
@@ -639,13 +563,7 @@ CringedSwapChain ( Engine * engine )
 
     if ( formatCount > 0 )
     {
-        details->formats = ( VkSurfaceFormatKHR * ) malloc (
-            formatCount * sizeof ( VkSurfaceFormatKHR ) );
-        if ( ! details->formats )
-        {
-            _DEBUG_P ( "error: malloc failed for formats\n" );
-            goto defer_cleanup;
-        }
+        U_ALLOC ( details->formats, VkSurfaceFormatKHR, formatCount );
 
         if ( vkGetPhysicalDeviceSurfaceFormatsKHR ( engine->physicalDevice,
                                                     *engine->surface,
@@ -670,14 +588,7 @@ CringedSwapChain ( Engine * engine )
 
     if ( modeCount > 0 )
     {
-        details->modes = ( VkPresentModeKHR * ) malloc (
-            modeCount * sizeof ( VkPresentModeKHR ) );
-        if ( ! details->modes )
-        {
-            _DEBUG_P ( "error: malloc failed for present modes\n" );
-            goto defer_cleanup;
-        }
-
+        U_ALLOC ( details->modes, VkPresentModeKHR, modeCount );
         if ( vkGetPhysicalDeviceSurfacePresentModesKHR (
                  engine->physicalDevice,
                  *engine->surface,
@@ -730,13 +641,7 @@ CringedSwapChain ( Engine * engine )
         createInfo.pQueueFamilyIndices   = NULL;
     }
 
-    engine->swapChain = malloc ( sizeof ( VkSwapchainKHR ) );
-    if ( ! engine->swapChain )
-    {
-        _DEBUG_P ( "error: malloc swapChain of size: %zu",
-                   sizeof ( VkSwapchainKHR ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->swapChain, VkSwapchainKHR, 1 );
     if ( ( opResult = vkCreateSwapchainKHR ( //
                *engine->device,
                &createInfo,
@@ -762,15 +667,8 @@ CringedSwapChain ( Engine * engine )
                    imageCount );
         goto defer_cleanup;
     }
-    engine->swapChainImages =
-        ( VkImage * ) malloc ( imageCount * sizeof ( VkImage ) );
-    if ( ! engine->swapChainImages )
-    {
-        _DEBUG_P ( "error: malloc Vkimages of size: %zu",
-                   imageCount * sizeof ( VkImage ) );
-        goto defer_cleanup;
-    }
 
+    U_ALLOC ( engine->swapChainImages, VkImage, imageCount );
     if ( ( opResult = vkGetSwapchainImagesKHR ( //
                *engine->device,
                *( engine->swapChain ),
@@ -784,15 +682,9 @@ CringedSwapChain ( Engine * engine )
     }
     engine->swapChainImagesCount = imageCount;
 
-    engine->swapChainImageViews = ( VkImageView * ) malloc (
-        engine->swapChainImagesCount * sizeof ( VkImageView ) );
-    if ( ! engine->swapChainImages )
-    {
-        _DEBUG_P ( "error: malloc VkImageViews of size: %zu",
-                   engine->swapChainImagesCount * sizeof ( VkImageView ) );
-        goto defer_cleanup;
-    }
-
+    U_ALLOC ( engine->swapChainImageViews,
+              VkImageView,
+              engine->swapChainImagesCount );
     VkImageViewCreateInfo swIView_createinfo = {};
     swIView_createinfo.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     swIView_createinfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -893,16 +785,7 @@ BasedSyncSetup ( Engine * engine )
 {
     VkResult opResult, rcode = VK_INCOMPLETE;
 
-    engine->sync = malloc ( engine->MaxFramesInFlight *
-                            sizeof ( BasedSynchronization ) );
-    if ( ! engine->sync )
-    {
-        _DEBUG_P ( "error: malloc sync array of size: %zu",
-                   engine->MaxFramesInFlight *
-                       sizeof ( BasedSynchronization ) );
-        goto defer_cleanup;
-    }
-
+    U_ALLOC ( engine->sync, BasedSynchronization, engine->MaxFramesInFlight );
     for ( uint32_t m = 0; m < engine->MaxFramesInFlight; m++ )
     {
         VkSemaphore ** semaphores[] = {
@@ -1035,17 +918,9 @@ CringedFrameBuffers ( Engine * engine )
     VkResult opResult, rcode = VK_INCOMPLETE;
 
     engine->swapChainFrameBufferCount = engine->swapChainImagesCount;
-    engine->swapChainFrameBuffers     = malloc (
-        engine->swapChainFrameBufferCount * sizeof ( VkFramebuffer ) );
-    if ( ! engine->swapChainFrameBuffers )
-    {
-
-        _DEBUG_P ( "error: malloc framebuffers of size: %zu\n",
-                   engine->swapChainFrameBufferCount *
-                       sizeof ( VkFramebuffer ) );
-        goto defer_cleanup;
-    }
-
+    U_ALLOC ( engine->swapChainFrameBuffers,
+              VkFramebuffer,
+              engine->swapChainFrameBufferCount );
     for ( uint32_t i = 0; i < engine->swapChainFrameBufferCount; i++ )
     {
         VkImageView attachments[] = { engine->swapChainImageViews[ i ] };
@@ -1126,14 +1001,7 @@ BasedGraphicsPipeline ( Engine * engine )
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 
     /* Create Vertex Shader Module & Stage */
-    engine->triVert->s_module =
-        ( VkShaderModule * ) malloc ( sizeof ( VkShaderModule ) );
-    if ( ! engine->triVert->s_module )
-    {
-        _DEBUG_P ( "error: malloc triVert shadermodule of size: %zu\n",
-                   sizeof ( VkShaderModule ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->triVert->s_module, VkShaderModule, 1 );
     createInfo.codeSize = engine->triVert->size;
     createInfo.pCode    = ( uint32_t * ) engine->triVert->data;
     if ( ( opResult = vkCreateShaderModule ( //
@@ -1156,14 +1024,7 @@ BasedGraphicsPipeline ( Engine * engine )
     vertShaderStageInfo.pName  = "main";
 
     /* Create Fragment Shader Module & Stage */
-    engine->triFrag->s_module =
-        ( VkShaderModule * ) malloc ( sizeof ( VkShaderModule ) );
-    if ( ! engine->triFrag->s_module )
-    {
-        _DEBUG_P ( "error: malloc triFrag shadermodule of size: %zu\n",
-                   sizeof ( VkShaderModule ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->triFrag->s_module, VkShaderModule, 1 );
     createInfo.codeSize = engine->triFrag->size;
     createInfo.pCode    = ( uint32_t * ) engine->triFrag->data;
     if ( ( opResult = vkCreateShaderModule ( //
@@ -1280,14 +1141,7 @@ BasedGraphicsPipeline ( Engine * engine )
     colorBlending.blendConstants[ 3 ] = 0.0f;
 
     /* Pipeline Layout */
-    engine->pipelineLayout = malloc ( sizeof ( VkPipelineLayout ) );
-    if ( ! engine->pipelineLayout )
-    {
-        _DEBUG_P ( "error: malloc pipeline Layout of size: %zu\n",
-                   sizeof ( VkPipelineLayout ) );
-        goto defer_cleanup;
-    }
-
+    U_ALLOC ( engine->pipelineLayout, VkPipelineLayout, 1 );
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount         = 0;
@@ -1346,13 +1200,7 @@ BasedGraphicsPipeline ( Engine * engine )
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies   = &dependency;
 
-    engine->renderPass = malloc ( sizeof ( VkRenderPass ) );
-    if ( ! engine->renderPass )
-    {
-        _DEBUG_P ( "error: malloc render pass of size: %zu\n",
-                   sizeof ( VkRenderPass ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->renderPass, VkRenderPass, 1 );
     if ( ( opResult = vkCreateRenderPass ( //
                *engine->device,
                &renderPassInfo,
@@ -1384,13 +1232,7 @@ BasedGraphicsPipeline ( Engine * engine )
     pipelineInfo.basePipelineHandle  = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex   = -1;
 
-    engine->pipeline = malloc ( sizeof ( VkPipeline ) );
-    if ( ! engine->pipeline )
-    {
-        _DEBUG_P ( "error: malloc Graphics Pipeline of size: %zu\n",
-                   sizeof ( VkPipeline ) );
-        goto defer_cleanup;
-    }
+    U_ALLOC ( engine->pipeline, VkPipeline, 1 );
     if ( ( opResult = vkCreateGraphicsPipelines ( //
                *engine->device,
                VK_NULL_HANDLE,
